@@ -57,7 +57,7 @@ test/e2e.js     mock 全链路：发/改/删/钉/召回/篡改拒绝/历史回�
 
 ## Roadmap
 
-- [ ] 实弹验证：KOOK type 9 原位 update（文档称仅 9/10 可改，待真机确认）
+- [x] 实弹验证：KOOK type 9 原位 update 真机生效（2026-11-06，edit 全程 ~1.2s，pin/unpin 权限确认）
 - [ ] 接入 tg-memory-bridge 的 Memory Defense（30+ 类 redact）钩子
 - [ ] 置顶画像卡（明文摘要当目录）与 digest 三态对账
 - [ ] 并入 DSH 插件（对齐 tg-memory-bridge 的生命周期钩子）
