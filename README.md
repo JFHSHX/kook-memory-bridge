@@ -10,7 +10,10 @@ tg-memory-bridge 的 KOOK 后端原型：**KOOK 频道存密文 + 本地索引�
 | 平台主动分析 | 分钟级破解（同钥多消息 + 可预测消息头 = two-time pad） | 挡得住（认证加密，含完整性校验） |
 
 - 明文只落本机（`~/.dsh/kook-memory/`，本地信任根），KOOK 群上只有 `kmb1:` 密文
-- 密钥 32 字节首次运行自动生成（64 hex），仅存本机 `config.json`（0600），与 bot token 同级
+- 密钥两种来源（`config.json`，0600，与 bot token 同级）：
+  - **随机 key**：首次运行自动生成 32 字节（64 hex），仅存本机
+  - **passphrase**：config 里写 `passphrase` → scrypt(N=2^14) 派生 256 位 GCM 密钥，`kdfSalt` 本机自动生成——多端重建只需记住口令
+  - ⚠️ 人记的低熵口令（16 字符 ASCII ≈ 38 bit 熵）**绝不能直接当 AES 密钥**，必须走 KDF；换 passphrase = 旧密文全部作废
 - 每条消息独立随机 IV；密文被篡改时解密直接失败（GCM auth tag）
 
 ## 快速开始

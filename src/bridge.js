@@ -9,9 +9,19 @@ const defense = { check: (t) => ({ ok: true, text: t }) };
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+// 密钥解析：passphrase（scrypt 派生，优先）> 随机 key
+function resolveKeyHex(cfg) {
+  if (cfg.passphrase) {
+    if (!cfg.kdfSalt) throw new Error('config 有 passphrase 但缺 kdfSalt；删掉 kdfSalt 字段重跑一次即可自动补齐');
+    return crypto.deriveKeyHex(cfg.passphrase, cfg.kdfSalt, cfg.kdf);
+  }
+  if (cfg.key) return cfg.key;
+  throw new Error('config 缺少 key 或 passphrase，无法解析密钥');
+}
+
 function createBridge(cfg) {
   const kook = kookMod.createKook(cfg);
-  const key = crypto.keyFromHex(cfg.key);
+  const key = crypto.keyFromHex(resolveKeyHex(cfg));
 
   return {
     async retain(text, tags = []) {

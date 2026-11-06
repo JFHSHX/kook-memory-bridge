@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { newKeyHex } = require('./crypto');
+const { newKeyHex, newSaltHex } = require('./crypto');
 
 function homeDir() {
   return process.env.KOOK_MEMORY_HOME || path.join(os.homedir(), '.dsh', 'kook-memory');
@@ -26,7 +26,13 @@ function loadOrCreate() {
     console.error('[kook-memory] 已生成初始配置 ' + file + '（新密钥已自动生成）');
   }
   const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (!cfg.key) throw new Error('config.json 缺少 key；删除该文件后重新运行即可重新初始化');
+  // 密钥两种来源：passphrase（scrypt 派生，优先）> 随机 key；两者都缺才报错
+  if (cfg.passphrase && !cfg.kdfSalt) {
+    cfg.kdfSalt = newSaltHex();
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
+    console.error('[kook-memory] 已生成 kdfSalt（scrypt 派生用，仅存本机）');
+  }
+  if (!cfg.key && !cfg.passphrase) throw new Error('config.json 缺少 key 或 passphrase；删除该文件重新运行可重新初始化');
   return cfg;
 }
 

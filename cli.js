@@ -34,7 +34,9 @@ const bridge = createBridge(cfg);
       console.log('apiBase : ' + cfg.apiBase);
       console.log('botToken: ' + (cfg.botToken ? '已配置' : '未配置（developer.kookapp.cn 创建应用后填入）'));
       console.log('channel : ' + (cfg.channelId || '未配置'));
-      console.log('key     : 已生成（64hex，仅存本机）');
+      console.log('密钥    : ' + (cfg.passphrase
+        ? 'passphrase + scrypt 派生（kdfSalt 仅存本机；换口令=旧密文全废）'
+        : '随机 key（64hex，仅存本机）'));
       console.log('索引条数: ' + store.count());
       break;
     default:

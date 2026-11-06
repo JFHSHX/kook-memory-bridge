@@ -68,6 +68,19 @@ const store = require('../src/store');
   assert(history.length >= 1 && history.every(h => h.content.startsWith('kmb1:')), '回读历史全为密文');
   results.push('✓ list：回读历史均为 kmb1 密文');
 
+  // 8. passphrase 派生模式：同口令同 salt 必须可复现，异口令必须解不开
+  const cryptoMod = require('../src/crypto');
+  const cfgP = { ...cfg, passphrase: 'test-pass-114514', kdfSalt: cryptoMod.newSaltHex() };
+  delete cfgP.key;
+  const bridgeP = createBridge(cfgP);
+  const e3 = await bridgeP.retain('口令派生模式金丝雀');
+  const blob = mock.state.messages.get(e3.msgId).content;
+  assert(createBridge({ ...cfgP }).peek(blob) === '口令派生模式金丝雀', '同口令重建必须可解');
+  let threw2 = false;
+  try { createBridge({ ...cfgP, passphrase: 'wrong-pass' }).peek(blob); } catch { threw2 = true; }
+  assert(threw2, '异口令必须解不开（GCM 拒绝）');
+  results.push('✓ passphrase：scrypt 派生可复现 / 异口令拒绝');
+
   await mock.close();
   console.log('\nKOOK + AES-GCM mock 全链路通过：\n' + results.map(r => '  ' + r).join('\n'));
   console.log('测试目录: ' + homeDir());
