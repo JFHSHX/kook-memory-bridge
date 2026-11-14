@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { normalizeUnit } from '../plugin/lib/units.js';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kook-cli-test-'));
+const row = { ...normalizeUnit({ text: 'CLI 与 MCP 共用引擎测试', tags: ['#fact'] }), id: 'cli-1', msgId: 'cli-1', ts: Date.now() };
+fs.writeFileSync(path.join(dir, 'index.jsonl'), JSON.stringify(row) + '\n');
+const env = { ...process.env, KOOK_MEMORY_HOME: dir };
+const recall = spawnSync(process.execPath, ['cli.js', 'recall', '共用引擎'], { cwd: path.resolve('.'), env, encoding: 'utf8' });
+assert.equal(recall.status, 0, recall.stderr);
+assert.ok(recall.stdout.includes('cli-1'));
+assert.ok(recall.stdout.includes('CLI 与 MCP 共用引擎测试'));
+const usage = spawnSync(process.execPath, ['cli.js'], { cwd: path.resolve('.'), env, encoding: 'utf8' });
+assert.ok(usage.stdout.includes('reflect'));
+const invalid = spawnSync(process.execPath, ['cli.js', 'retain', ' '], { cwd: path.resolve('.'), env, encoding: 'utf8' });
+assert.equal(invalid.status, 1);
+assert.ok(invalid.stderr.includes('不能为空'));
+console.log('✓ CLI 新引擎 recall/usage/参数错误');

@@ -1,11 +1,16 @@
 import {
   MAX_TEXT, resolveDataDir, loadConfig, readState, writeState, resolveChannel,
   requireChannel, resolveKey, normalizeTags, dateOf, formatUnitMessage,
-  parseMemoryMessage, kook, readMemory, writeMemory, appendMemory, recallMemory,
+  parseMemoryMessage, kook, readMemory, writeMemory, recallMemory,
   locateMemory, defenseApply, diag, rebuildCache, cacheExists,
 } from './core.js';
-import { normalizeUnit, documentIdFor } from './units.js';
+import { normalizeUnit } from './units.js';
 import { createBankTool } from './bank-tool.js';
+import { searchKookMemory } from './search.js';
+import { retainDocument } from './retain.js';
+import { createAdvancedTools } from './advanced-tools.js';
+import { searchMemories } from './retrieval.js';
+import { createLLMClient } from './llm.js';
 
 export const name = 'kook-memory-bridge';
 const output = render => ({ schema: { type: 'object' }, render });
@@ -116,38 +121,24 @@ function buildTools(config = {}) {
         entities: { type: 'array', items: { type: ['string', 'object'] } },
         links: { type: 'array', items: { type: 'object' } },
         metadata: { type: 'object' },
+        mode: { type: 'string', enum: ['concise', 'verbose', 'custom', 'verbatim', 'chunks'], description: '省略时按 bank 配置；无 LLM 自动明确降级 chunks' },
+        chunkSize: { type: 'integer', description: '文档切块字符预算；KOOK 传输上限会进一步收紧' },
+        customInstructions: { type: 'string', description: 'custom 模式的抽取使命' },
       },
       required: ['text'], additionalProperties: false,
     },
     output: output((_a, v) => text(v.ok
-      ? `已写入 ${v.id}（KOOK ${v.msgId}）\n[${v.date}] ${v.tags.join(' ')}（正文已加密）`
+      ? `已写入 ${v.count || 1} 条记忆（文档 ${v.documentId}，模式 ${v.actualMode || 'chunks'}）\n首个 id: ${v.id}${v.notes?.length ? `\n${v.notes.join('\n')}` : ''}`
       : `失败: ${v.error || ''}`)),
-    timeoutMs: 30000,
+    timeoutMs: 180000,
     isConcurrencySafe: false,
     execute: async args => {
       const raw = String(args?.text || '').trim();
       if (!raw) throw new Error('kook_retain: text 不能为空');
-      if (raw.length > MAX_TEXT) throw new Error(`kook_retain: 正文 ${raw.length} 字超过 ${MAX_TEXT}，请拆成多条`);
-      const channelId = requireChannel(cfg, readState(dir));
-      const defended = defenseApply(cfg, raw);
-      const ts = Date.now();
-      const tags = normalizeTags(args?.tags);
-      const unit = normalizeUnit({
-        ...args, text: defended.text, tags,
-        documentId: args.documentId || documentIdFor(defended.text),
-        mentionedAt: args.mentionedAt || new Date(ts).toISOString(),
-      });
-      const content = formatUnitMessage({ ...unit, date: dateOf(ts) }, resolveKey(cfg));
-      const sent = await kook.send(cfg, channelId, content);
-      const entry = {
-        ...unit, id: String(sent.msg_id), msgId: String(sent.msg_id), ts: Number(sent.msg_timestamp) || ts,
-        date: dateOf(ts), tags, text: defended.text, createdAt: new Date(ts).toISOString(),
-      };
-      let note = '';
-      try { appendMemory(dir, entry); }
-      catch (error) { note = `KOOK 已写入，缓存更新失败：${error?.message || error}；请运行 kook_rebuild`; }
-      diag(dir, 'retain', { id: entry.id, redacted: defended.hits });
-      return { ok: true, ...entry, note };
+      if (raw.length > 100000) throw new Error('kook_retain: 单文档超过 100000 字，请先拆分文档');
+      const result = await retainDocument(cfg, dir, { ...args, text: raw });
+      diag(dir, 'retain_document', { documentId: result.documentId, count: result.count, mode: result.actualMode });
+      return result;
     },
   };
 
@@ -162,6 +153,9 @@ function buildTools(config = {}) {
         refresh: { type: 'boolean', description: '先从 KOOK 全量重建缓存再检索' },
         bank: { type: 'string', description: '严格限定 bank，默认 default' },
         factTypes: { type: 'array', items: { type: 'string', enum: ['world', 'experience', 'observation', 'opinion'] } },
+        maxTokens: { type: 'integer', description: '结果文本预算，默认 4096' },
+        candidateLimit: { type: 'integer', description: 'RRF 预裁，默认/最大 300' },
+        window: { type: 'object', description: '可选显式时间窗 {start,end}' },
       },
       additionalProperties: false,
     },
@@ -176,14 +170,20 @@ function buildTools(config = {}) {
         await rebuildCache(cfg, dir);
         rebuilt = true;
       }
-      const hits = recallMemory(dir, { ...(args || {}), bank: args?.bank || 'default' }).map(e => ({
+      const search = await searchKookMemory(cfg, dir, { ...(args || {}), bank: args?.bank || 'default' });
+      const hits = search.results.map(({ entry: e, finalScore, sources, tokens }) => ({
         id: e.id, msgId: e.msgId, date: e.date, tags: e.tags,
         bank: e.bank, factType: e.factType, documentId: e.documentId,
         occurredStart: e.occurredStart, occurredEnd: e.occurredEnd, mentionedAt: e.mentionedAt,
         entities: e.entities, links: e.links, proofCount: e.proofCount,
+        score: finalScore, sources, tokens,
         text: e.text.length > 800 ? `${e.text.slice(0, 800)}…` : e.text,
       }));
-      return { ok: true, count: hits.length, hits, rebuilt };
+      return {
+        ok: true, count: hits.length, hits, rebuilt,
+        armStats: search.armStats, disabledArms: search.disabledArms,
+        embedding: search.embedding, reranker: search.reranker, note: search.note,
+      };
     },
   };
 
@@ -348,7 +348,10 @@ function buildTools(config = {}) {
     },
   };
 
-  return [status, retain, recall, rebuild, createBankTool(cfg, dir), forget, edit, pin];
+  return [
+    status, retain, recall, rebuild, createBankTool(cfg, dir), forget, edit, pin,
+    ...createAdvancedTools(cfg, dir),
+  ];
 }
 
 function promptTextOf(messages) {
@@ -383,22 +386,12 @@ function lastInjectedText(events) {
 function relevantHits(entries, prompt) {
   const input = String(prompt || '');
   if (!input || input.includes('<kook_memory>')) return [];
-  const words = input.toLowerCase().split(/[\s,，。;；:：!！?？、\n]+/)
-    .map(s => s.replace(/^#+/, '').trim()).filter(s => s.length >= 2 && s.length <= 30).slice(0, 12);
-  if (!words.length) return [];
-  const hits = [];
-  let budget = 900;
-  for (const e of entries) {
-    if (e.tags.includes('#digest')) continue;
-    const hay = e.text.toLowerCase();
-    const matched = words.filter(w => hay.includes(w)).length;
-    if (!matched) continue;
-    const line = `- ${e.id} [${e.date}] ${e.text.replace(/\s+/g, ' ').slice(0, 220)}`;
-    if (line.length > budget) continue;
-    hits.push({ line, score: matched, ts: e.ts });
-    budget -= line.length + 1;
-  }
-  return hits.sort((a, b) => b.score - a.score || b.ts - a.ts).slice(0, 3).map(h => h.line);
+  const search = searchMemories(entries, input, {
+    bank: 'default', kinds: ['memory', 'observation', 'mental_model'],
+    limit: 3, maxTokens: 900,
+  });
+  return search.results.map(({ entry: e }) =>
+    `- ${e.id} [${e.date}] (${e.kind || 'memory'}) ${e.text.replace(/\s+/g, ' ').slice(0, 220)}`);
 }
 
 function buildInjection(dir, prompt) {
@@ -447,6 +440,7 @@ export function apply(ctx, config = {}) {
       const sid = agent?.session?.header?.id || '?';
       const session = sessions.get(sid) || { injected: '' };
       const prompt = promptTextOf(decision.messages);
+      if (prompt) session.lastPrompt = prompt;
       const injection = buildInjection(dir, prompt);
       const events = (agent?.session?.snapshotEvents?.() || agent?.session?.events || [])
         .slice(agent?.session?.inheritedEventCount || 0);
@@ -462,6 +456,25 @@ export function apply(ctx, config = {}) {
     }
     return decision;
   }, { prepend: true });
+  ctx.on('agent/turn-stopping', async ({ agent } = {}) => {
+    try {
+      if (config.autoCapture !== true) return;
+      const client = createLLMClient(loadConfig(config, dir));
+      if (!client.enabled) return;
+      const sid = agent?.session?.header?.id || '?';
+      const session = sessions.get(sid);
+      const prompt = session?.lastPrompt;
+      if (!prompt || prompt === session.capturedPrompt || /<(?:kook|tg)_memory>/.test(prompt)) return;
+      session.capturedPrompt = prompt;
+      const result = await retainDocument(loadConfig(config, dir), dir, {
+        text: prompt, mode: 'concise', bank: config.bank || 'default',
+        tags: ['#auto-capture'], metadata: { harness: 'dsh' },
+      });
+      diag(dir, 'auto_capture', { sid, count: result.count, documentId: result.documentId });
+    } catch (error) {
+      try { ctx.logger?.warn?.(`kook-memory-bridge: 自动沉淀失败：${error?.message || error}`); } catch { /* 静默 */ }
+    }
+  });
   ctx.on('agent/disposed', ({ agent } = {}) => {
     sessions.delete(agent?.session?.header?.id || '?');
   });

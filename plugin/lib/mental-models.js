@@ -1,11 +1,11 @@
 import { normalizeUnit } from './units.js';
 
-export function createMentalModel({ bank = 'default', modelId, name, sourceQuery, tags = ['#mental-model'], trigger = 'manual' }, now = Date.now()) {
+export function createMentalModel({ bank = 'default', modelId, name, sourceQuery, tags = ['#mental-model'], scope, trigger = 'manual' }, now = Date.now()) {
   if (!String(modelId || '').trim()) throw new Error('modelId 不能为空');
   if (!String(sourceQuery || '').trim()) throw new Error('sourceQuery 不能为空');
   return normalizeUnit({
     kind: 'mental_model', bank, modelId, question: sourceQuery, factType: 'world', tags,
-    text: '（尚未生成）', scope: tags,
+    text: '（尚未生成）', scope: scope === undefined ? tags : scope,
     payload: {
       name: name || modelId, sourceQuery, trigger, basedOn: [],
       lastRefreshedAt: null, lastMemorySeenAt: 0, history: [],

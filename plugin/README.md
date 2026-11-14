@@ -1,34 +1,39 @@
 # kook-memory-bridge（DSH 插件）
 
-KOOK 频道作为 DSH 长期记忆库：**KOOK 是唯一事实源，`index.jsonl` 只是可重建缓存**。日期与标签明文，正文 AES-256-GCM 密文；`kmb2` 保存完整 MemoryUnit。
+KOOK 唯一事实源的 Hindsight 风格记忆引擎。日期与标签明文，正文 AES-256-GCM；本地 `index.jsonl` 与 `vectors.json` 都是可重建缓存。`kmb2` 保存 MemoryUnit、bank、文档、双时间轴、实体、链接与证据。
 
-## 消息格式
+## 工具（12）
 
-```text
-[2026-11-15] #fact #项目
-kmb2:<base64(iv|authTag|json-ciphertext)>
+- 基础：`kook_status` / `kook_retain` / `kook_recall` / `kook_rebuild`
+- 管理：`kook_bank` / `kook_edit` / `kook_forget` / `kook_pin`
+- Hindsight：`kook_reflect` / `kook_consolidate` / `kook_mental_model` / `kook_directive`
+
+retain 支持 `concise/verbose/custom/verbatim/chunks`；无 LLM 明确降级 chunks。recall 使用 TEMPR＋RRF，可选 local/OpenAI embedding 和 TEI/OpenAI rerank。reflect 无 LLM 时只返回分层证据。consolidation 无 LLM 时只做 append-only＋精确强化。
+
+## 配置
+
+`~/.dsh/kook-memory/config.json`（0600，可用 `KOOK_MEMORY_HOME` 覆盖）：
+
+```json
+{
+  "botToken": "<KOOK bot token>",
+  "channelId": "<文字频道 id>",
+  "key": "<64 hex；或 passphrase+kdfSalt>",
+  "embeddingProvider": "none",
+  "llmBaseURL": "https://your-gateway/v1",
+  "llmModel": "your-model",
+  "llmApiKeyEnv": "NS_API_KEY"
+}
 ```
 
-早期 `kmb1` 与无元数据行消息仍可解析。画像卡为明文并置顶，不进入记忆缓存。
+可选：`embeddingProvider=local`、`embeddingBaseURL/Model/ApiKeyEnv`、`rerankerProvider=tei`、`rerankerBaseURL/Model/ApiKeyEnv`。`autoCapture=true` 且配置 LLM 后才会自动沉淀。
 
-## 工具
-
-- `kook_status`：验证 token，必要时自动发现文字频道
-- `kook_retain`：写入记忆
-- `kook_recall`：关键词/标签召回，严格 bank 隔离；缓存不存在自动重建
-- `kook_rebuild`：全量翻页解密，原子重建缓存
-- `kook_bank`：list/get/set bank 配置，配置同样可重建
-- `kook_edit`：按 `id` / `msgId` / `query` 原位修改，保留原日期与富字段
-- `kook_forget`：KOOK 删除成功后才清缓存；失败保留并带原因
-- `kook_pin`：置顶/取消置顶记忆；传 `text` 时维护明文画像卡
-
-## 配置与安装
-
-敏感配置只在 `~/.dsh/kook-memory/config.json`（0600）：`botToken`、`channelId`、`key` 或 `passphrase+kdfSalt`。配置与独立 CLI 共用。
+## 安装、测试与 MCP
 
 ```sh
 npm test
 dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
+node bin/mcp-stdio.js
 ```
 
-代码变更后在 App「引擎」页重启引擎。卸载：`dsh plugin --profile web remove kook-memory-bridge`。
+MCP stdio 支持 initialize/tools/list/tools/call。lib 改动后在 App「引擎」页重启。完整功能与限制见仓库 `README.md`、`README.en.md` 和 `docs/hindsight-feature-matrix.md`。

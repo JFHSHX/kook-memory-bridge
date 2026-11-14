@@ -114,7 +114,9 @@ export function formatMemoryMessage(entry, text, key) {
 export function formatUnitMessage(input, key) {
   const unit = normalizeUnit(input);
   const date = input.date || dateOf(unit.mentionedAt);
-  return `[${date}] ${normalizeTags(unit.tags).join(' ')}\n${encryptUnit(unit, key)}`;
+  const wire = `[${date}] ${normalizeTags(unit.tags).join(' ')}\n${encryptUnit(unit, key)}`;
+  if (wire.length > 7900) throw new Error(`单元加密后 ${wire.length} 字符超过 KOOK 传输预算，请缩小文本或 payload`);
+  return wire;
 }
 
 // 同时兼容早期“整条消息只有 kmb1 密文”的格式。

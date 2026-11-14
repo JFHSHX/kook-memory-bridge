@@ -21,6 +21,15 @@ const reply = (data, code = 0, message = '操作成功') => ({
 
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(String(input));
+  if (url.href === 'https://mock.llm/v1/chat/completions') {
+    return {
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ facts: [
+        { text: '用户上周完成 Vue 迁移', factType: 'world', occurredStart: '2026-11-01', occurredEnd: '2026-11-08', entities: [{ name: 'Vue', type: 'PRODUCT' }], links: [] },
+        { text: 'Agent 验证了 concise 抽取', factType: 'experience', occurredStart: '2026-11-15', entities: [], links: [] },
+      ] }) } }] }),
+    };
+  }
   const endpoint = url.pathname.replace('/api/v3', '');
   const body = options.body ? JSON.parse(options.body) : {};
   calls.push({ endpoint, body });
@@ -78,8 +87,9 @@ const ctx = makeCtx(def => { defs[def.name] = def; });
 apply(ctx, { dataDir, botToken: 'mock-token', channelId: 'channel-1', key });
 assert.deepEqual(Object.keys(defs), [
   'kook_status', 'kook_retain', 'kook_recall', 'kook_rebuild', 'kook_bank', 'kook_forget', 'kook_edit', 'kook_pin',
+  'kook_reflect', 'kook_consolidate', 'kook_mental_model', 'kook_directive',
 ]);
-console.log('✓ 8 个工具注册');
+console.log('✓ 12 个工具注册');
 
 const status = await defs.kook_status.execute({});
 assert.equal(status.ok, true);
@@ -205,6 +215,29 @@ const legacyCipher = encryptBody('旧格式正文', keyBuf);
 assert.equal(parseMemoryMessage(legacyCipher, keyBuf).text, '旧格式正文');
 assert.equal(parseMemoryMessage(legacyCipher, keyBuf).legacy, true);
 console.log('✓ 旧全密文格式兼容');
+
+// 长文档 chunks：一次 retain 生成多条、同 documentId、同 contentHash
+const longText = Array.from({ length: 40 }, (_, i) => `第 ${i} 段包含长期项目事实与完整语义边界。`).join('\n');
+const longResult = await defs.kook_retain.execute({ text: longText, mode: 'chunks', chunkSize: 200, documentId: 'long-doc' });
+assert.ok(longResult.count > 3);
+assert.equal(longResult.actualMode, 'chunks');
+assert.ok(longResult.facts.every(f => f.documentId === 'long-doc'));
+assert.equal(new Set(longResult.facts.map(f => f.contentHash)).size, 1);
+console.log(`✓ chunks 长文档一次写入 ${longResult.count} 个可重建单元`);
+
+// concise + mock LLM：真正产生两条结构化事实，不退回原文
+const defsLLM = {};
+apply(makeCtx(d => { defsLLM[d.name] = d; }), {
+  dataDir, botToken: 'mock-token', channelId: 'channel-1', key,
+  llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock', llmApiKey: 'test-only',
+});
+const llmResult = await defsLLM.kook_retain.execute({ text: '用户上周完成 Vue 迁移，agent 今天验证。', mode: 'concise' });
+assert.equal(llmResult.actualMode, 'concise');
+assert.equal(llmResult.count, 2);
+assert.equal(llmResult.facts[0].entities[0].canonical, 'vue');
+assert.equal(llmResult.facts[1].factType, 'experience');
+assert.ok(llmResult.facts[0].occurredStart);
+console.log('✓ concise mock LLM 多事实/时间/实体/factType 全链路');
 
 await assert.rejects(() => defs.kook_edit.execute({ text: '无定位' }), /需要 id、msgId 或 query/);
 await assert.rejects(() => defs.kook_forget.execute({}), /需要 id、msgId 或 query/);

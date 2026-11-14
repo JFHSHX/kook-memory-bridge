@@ -1,82 +1,100 @@
 # kook-memory-bridge
 
-KOOK 加密长期记忆库：**KOOK 是唯一事实源，本地索引只是可重建缓存**。日期与标签明文，正文 AES-256-GCM 加密；`kmb2` 结构化单元保存 bank、文档、双时间轴、实体、链接与证据。零依赖 Node 标准库，附 DSH 插件与 Hindsight 复刻功能矩阵（[docs/hindsight-feature-matrix.md](docs/hindsight-feature-matrix.md)）。
+[English README](README.en.md) · [Hindsight 功能矩阵](docs/hindsight-feature-matrix.md) · [验证记录](docs/verification.md)
+
+KOOK 加密长期记忆引擎，复刻 [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight) 的核心记忆循环。**KOOK 是唯一事实源，本地索引和向量都只是可重建缓存**；日期与标签明文，正文使用 AES-256-GCM。
+
+## 已实现
+
+- **存储**：全量分页、原子重建、稳定 id=`msgId`；`kmb1` 向后兼容，`kmb2` 保存 MemoryUnit JSON
+- **数据模型**：bank、document/chunk、world/experience/observation/opinion、双时间轴、实体、temporal/semantic/entity/causal links、proof/source ids
+- **banks**：严格隔离；disposition、retain/observations/reflect mission、配置也存 KOOK 并可重建
+- **retain**：`concise / verbose / custom / verbatim / chunks`；无 LLM 时明确降级 chunks，长文档与实体/时间/语义链接
+- **TEMPR**：BM25 关键词、可选 embedding 语义、时间窗与时间桶、语义种子的 link expansion、RRF(k=60)、三类乘法 boost、token 预算
+- **providers**：确定性 lexical-hash 回退、OpenAI-compatible embeddings、TEI/OpenAI-compatible rerank；故障回退 RRF
+- **观察与反思**：append-only/精确强化、LLM create/update/delete/skip、scope 隔离、证据与历史保留；reflect-lite 分层证据、引用 id 校验、directives
+- **mental models**：scoped stale、watermark、full/delta、未变块保留、50 版历史、knowledge-page 投影
+- **Defense**：上游当前 46 类＋KOOK token；CJK 边界、Luhn/UUID、指纹审计，可选 prompt-injection 检测
+- **接入**：DSH 插件与生命周期注入、CLI、标准 MCP stdio（12 工具）
 
 ## 消息格式
 
 ```text
-[2026-11-15] #fact #kook-bridge
+[2026-11-15] #fact #project
 kmb2:<base64(iv|authTag|json-ciphertext)>
 ```
 
-首行元数据明文，KOOK 客户端可直接按日期/标签浏览。`kmb2` 解密后为 MemoryUnit JSON；早期 `kmb1` 纯文本与无元数据行的消息继续兼容。缓存可从频道全量分页重建，稳定 id 永远等于 KOOK `msgId`。
+`kmb2` 解密后包含 `bank/documentId/chunkId/text/factType/context/occurredStart/occurredEnd/mentionedAt/entities/links/proofCount/sourceMemoryIds/payload` 等字段。明文画像卡不进入记忆缓存。
 
-## 威胁模型与结论
+## 安装与配置
 
-| 对手 | XOR（已否决） | 本方案 AES-256-GCM |
-|---|---|---|
-| 人眼 / 关键词机审 | 能挡 | 能挡 |
-| 平台主动分析 | 分钟级破解（同钥多消息 + 可预测消息头 = two-time pad） | 挡得住（认证加密，含完整性校验） |
-
-- 明文只落本机（`~/.dsh/kook-memory/`，本地信任根），KOOK 群上只有 `kmb1:` 密文
-- 密钥两种来源（`config.json`，0600，与 bot token 同级）：
-  - **随机 key**：首次运行自动生成 32 字节（64 hex），仅存本机
-  - **passphrase**：config 里写 `passphrase` → scrypt(N=2^14) 派生 256 位 GCM 密钥，`kdfSalt` 本机自动生成——多端重建只需记住口令
-  - ⚠️ 人记的低熵口令（16 字符 ASCII ≈ 38 bit 熵）**绝不能直接当 AES 密钥**，必须走 KDF；换 passphrase = 旧密文全部作废
-- 每条消息独立随机 IV；密文被篡改时解密直接失败（GCM auth tag）
-
-## 快速开始
+要求 Node ≥20，无 npm 运行依赖。
 
 ```bash
-npm test          # mock 全链路 e2e（不需要 KOOK 账号）
+git clone git@github.com:JFHSHX/kook-memory-bridge.git
+cd kook-memory-bridge
+npm test
 node cli.js status
 ```
 
-## 实弹接入（五步）
+配置 `~/.dsh/kook-memory/config.json`（0600；可用 `KOOK_MEMORY_HOME` 覆盖）：
 
-1. KOOK 注册并实名 → [developer.kookapp.cn](https://developer.kookapp.cn) 创建应用 → 拿 bot token
-2. 机器人拉进你的私人服务器，授予「管理消息」权限（置顶需要）
-3. 取目标文字频道 id（KOOK 网页端频道链接里的一串 id）
-4. 填 `~/.dsh/kook-memory/config.json` 的 `botToken` / `channelId`
-5. `node cli.js retain "第一条记忆" fact` → 去 KOOK 客户端确认频道里是乱码（= 成功）
-
-## CLI
-
-```
-node cli.js retain "内容" [tag1,tag2]   # 写入（群上密文，索引明文）
-node cli.js edit <id> "新内容"          # 原位更新（双侧）
-node cli.js forget <id>                 # 双侧删除
-node cli.js pin|unpin <id>              # 置顶 / 取消
-node cli.js recall "关键词"             # 本地召回
-node cli.js peek "<kmb1:...>"           # 手工解一条密文
-node cli.js status
+```json
+{
+  "botToken": "<KOOK bot token>",
+  "channelId": "<文字频道 id>",
+  "key": "<64 位 hex；或改用 passphrase+kdfSalt>",
+  "embeddingProvider": "none",
+  "llmBaseURL": "https://your-openai-compatible-gateway/v1",
+  "llmModel": "your-model",
+  "llmApiKeyEnv": "NS_API_KEY"
+}
 ```
 
-## 结构
+可选 provider：
 
+- `embeddingProvider=local`：离线 lexical-hash，**不是神经语义模型**
+- `embeddingProvider=openai-compatible`：另配 `embeddingBaseURL/embeddingModel/embeddingApiKeyEnv`
+- `rerankerProvider=tei|openai-compatible`：另配 `rerankerBaseURL/rerankerModel/rerankerApiKeyEnv`
+- 未配置 LLM 时，reflect 返回分层证据，consolidation 只做 append-only/精确强化
+
+## DSH 工具
+
+`kook_status`、`kook_retain`、`kook_recall`、`kook_rebuild`、`kook_bank`、`kook_forget`、`kook_edit`、`kook_pin`、`kook_reflect`、`kook_consolidate`、`kook_mental_model`、`kook_directive`。
+
+```bash
+dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 ```
-src/crypto.js   AES-256-GCM：kmb1:<base64(iv|tag|ct)>，每条随机 IV
-src/config.js   ~/.dsh/kook-memory/config.json 自动生成（密钥 0600）
-src/kook.js     KOOK REST 最小客户端：create/update/delete/pin/unpin/list
-src/store.js    本地 JSONL 索引：明文 + 关键词召回
-src/bridge.js   编排：Defense 钩子 → 加密 → KOOK；索引双侧同步
-mock/           KOOK /api/v3 内存 mock（应答封包与官方一致）
-test/e2e.js     mock 全链路：发/改/删/钉/召回/篡改拒绝/历史回读
+
+代码变更后在 App「引擎」页重启。`autoCapture` 默认关闭，开启且配置 LLM 后才会在 turn-stopping 自动抽取。
+
+## CLI 与 MCP
+
+```bash
+node cli.js retain "用户偏好 Vue" fact,project chunks
+node cli.js recall "偏好"
+node cli.js reflect "用户偏好什么？"
+node cli.js consolidate
+node cli.js rebuild
+
+# MCP stdio
+node plugin/bin/mcp-stdio.js
 ```
 
-## Hindsight 复刻进度
+MCP 支持 `initialize`、`ping`、`tools/list`、`tools/call`，直接复用同一组 12 个 DSH 工具。
 
-已完成并实测：KOOK 主库＋原子重建缓存、稳定 msgId、`kmb2` MemoryUnit、严格 bank 隔离与可重建 bank config、文档 hash/切块、46 类 Defense＋KOOK token＋Luhn/UUID/指纹、observation scope/证据/历史保留纯函数、mental model watermark/stale/块级 delta 与 knowledge-page 投影。
+## 验证
 
-进行中：TEMPR 四路检索与 RRF、embedding/rerank provider、LLM 叙事抽取与 reflect、consolidation/mental-model 工具接入、MCP。独立 `src/` CLI 仍是早期 `kmb1` 兼容实现，新能力优先集中在 `plugin/`。
+```bash
+npm test                 # 根 mock e2e + CLI + 插件全部测试
+cd plugin && npm test   # 单元、公式、闭环、MCP、KOOK mock
+```
 
-## Roadmap
+真实 KOOK 已验证：缓存删除恢复、富字段与 bank config 重建、append-only 观察、proof 强化、directives、mental model stale、显式 local embedding。生成式 LLM 路径使用 mock；本机未配置 LLM 时以真实 KOOK 的证据模式验收。详见 [验证记录](docs/verification.md)。
 
-- [x] KOOK type 9 原位编辑与 pin/unpin 实弹
-- [x] DSH 插件与生命周期注入
-- [x] KOOK 主库＋可重建缓存（真实频道删除缓存后恢复）
-- [x] kmb2 富字段与 bank config 真实频道重建
-- [ ] TEMPR / LLM reflect / embedding / MCP（见功能矩阵 P0–P3）
+## 与完整 Hindsight 的边界
+
+不包含 PostgreSQL/Oracle、分布式队列、多租户、神经本地模型、完整 reflect agent loop/decision model、全量 39 工具 MCP/HTTP、pages/fs mount、附件多模态、完整 consolidation 状态机和定时刷新。时间解析是明确子集；关键词与图扩展是零依赖近似，不声称检索质量或 benchmark 对齐。完整对照见 [功能矩阵](docs/hindsight-feature-matrix.md)。
 
 ## License
 

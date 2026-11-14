@@ -1,9 +1,10 @@
 {
   "name": "kook-memory-bridge",
-  "version": "0.1.0",
-  "description": "KOOK 频道 + AES-256-GCM 端侧加密的记忆库原型（tg-memory-bridge 的 KOOK 后端）",
+  "version": "0.2.0",
+  "description": "KOOK 主库＋AES-256-GCM＋可重建缓存的 Hindsight 风格长期记忆引擎",
   "license": "MIT",
   "main": "src/bridge.js",
-  "scripts": { "test": "node test/e2e.js" },
-  "engines": { "node": ">=18" }
+  "bin": { "kook-memory": "cli.js", "kook-memory-mcp": "plugin/bin/mcp-stdio.js" },
+  "scripts": { "test": "node test/e2e.js && node test/cli.mjs && cd plugin && npm test" },
+  "engines": { "node": ">=20" }
 }

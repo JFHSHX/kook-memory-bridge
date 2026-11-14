@@ -5,7 +5,27 @@
 > 优先级：P0=先做/修正底座，P1=核心体验，P2=外部模型接入后增强，P3=不纳入零依赖近期范围。
 > 零依赖仅指 Node 18 标准库；LLM/embedding/reranker 可走 HTTP，但不能把“远程模型存在”写成“本地模型已复刻”。KOOK 仍是密文事实源，本地索引是缓存。
 
-## 一、总矩阵（现状 → 下一步 → 降级边界）
+## 〇、当前实施状态（2026-11-15，第二轮后）
+
+| 能力 | 状态与位置 |
+|---|---|
+| KOOK 主库、原子缓存重建、稳定 msgId | **已实弹**：`plugin/lib/core.js`；缓存删除后从真实频道恢复 |
+| versioned MemoryUnit、bank/document/chunk、双时间轴、实体/链接/proof/payload | **已实弹**：`units.js`＋`retain.js`，kmb2 富字段可重建 |
+| bank 隔离、disposition/mission/config、directives | **已实弹**：`banks.js`、`bank-tool.js`、`advanced-tools.js` |
+| 五种 retain modes | **已接主流程**：chunks/verbatim 离线；concise/verbose/custom 走 LLM，未配置明确降级；长文档与 mock concise 通过 |
+| TEMPR / RRF / boost / budget | **已接 `kook_recall`**：`retrieval.js`、`search.js`；BM25＋可选语义＋时间＋link expansion，公式数值测试通过 |
+| embedding / rerank | **已接**：local lexical-hash、OpenAI embeddings、TEI/OpenAI rerank；向量缓存与故障 RRF 回退通过 |
+| observations | **已接 `kook_consolidate`**：无 LLM append-only＋精确强化；LLM scope 对账、证据并集、历史保留、raw facts 不改 |
+| reflect | **reflect-lite 已接 `kook_reflect`**：分层检索、disposition/directives、真实 id 引用校验；无 LLM 返回证据。**不是完整 agent loop** |
+| mental models | **已接 `kook_mental_model`**：scoped stale、watermark、full/delta、失败保旧文、未变块保留；定时调度未做 |
+| Defense | **已统一到 retain/edit**：46＋KOOK、Luhn/UUID/指纹；可选本地 prompt-injection heuristic，不冒充 cloud |
+| DSH / CLI / MCP | **12 工具＋生命周期注入＋统一 CLI＋MCP stdio**；HTTP 与全 39 工具未做 |
+| pages | **仅有 knowledge-page 投影纯函数**；无 fs mount/后台页面服务 |
+| 真实验证 | 全部离线测试＋真实 KOOK 主库/kmb2/bank/observation/directive/mental/local-vector；生成式 LLM 为 mock，本机未配 key |
+
+> 以下第一至三节保留第二轮前的差距基线和精确上游公式。“当前 KOOK 状态”列描述的是当时起点；最新完成度以本节和 [verification.md](verification.md) 为准。
+
+## 一、总矩阵（第二轮前基线：现状 → 下一步 → 降级边界）
 
 | 功能与上游证据 | 当前 KOOK 状态 | 零依赖 JS 下一步（优先级） | 合理降级 / 不能复刻 |
 |---|---|---|---|
