@@ -9,6 +9,37 @@ const defense = { check: (t) => ({ ok: true, text: t }) };
 
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+function normalizeTags(tags) {
+  const list = Array.isArray(tags) ? tags : (tags ? [tags] : []);
+  const out = list.map(String).map(s => s.trim()).filter(Boolean)
+    .map(s => s.startsWith('#') ? s : '#' + s);
+  return out.length ? [...new Set(out)] : ['#fact'];
+}
+
+const dateOf = ts => new Date(Number(ts) || Date.now()).toISOString().slice(0, 10);
+
+// 日期与标签明文，正文密文；兼容早期只有一行 kmb1 密文的消息。
+function formatMessage(entry, text, key) {
+  return '[' + (entry.date || dateOf(entry.ts)) + '] ' + normalizeTags(entry.tags).join(' ')
+    + '\n' + crypto.encrypt(text, key);
+}
+
+function parseMessage(content, key) {
+  const raw = String(content || '').trim();
+  if (raw.startsWith('kmb1:')) return { date: '', tags: [], text: crypto.decrypt(raw, key), legacy: true };
+  const at = raw.indexOf('\n');
+  const header = at >= 0 ? raw.slice(0, at) : '';
+  const body = at >= 0 ? raw.slice(at + 1).trim() : '';
+  const match = header.match(/^\[(\d{4}-\d{2}-\d{2})\]\s*(.*)$/);
+  if (!match || !body.startsWith('kmb1:')) throw new Error('无法识别 KOOK 记忆消息格式');
+  return {
+    date: match[1],
+    tags: (match[2].match(/#[^\s#]+/g) || ['#fact']),
+    text: crypto.decrypt(body, key),
+    legacy: false,
+  };
+}
+
 // 密钥解析：passphrase（scrypt 派生，优先）> 随机 key
 function resolveKeyHex(cfg) {
   if (cfg.passphrase) {
@@ -26,9 +57,14 @@ function createBridge(cfg) {
   return {
     async retain(text, tags = []) {
       const d = defense.check(text);
-      const cipher = crypto.encrypt(d.text, key);
-      const { msgId, ts } = await kook.send(cipher);
-      const entry = { id: newId(), msgId, ts, tags, text: d.text, createdAt: new Date().toISOString() };
+      const ts = Date.now();
+      const normalized = normalizeTags(tags);
+      const wire = formatMessage({ ts, date: dateOf(ts), tags: normalized }, d.text, key);
+      const sent = await kook.send(wire);
+      const entry = {
+        id: newId(), msgId: sent.msgId, ts: sent.ts || ts, date: dateOf(ts), tags: normalized,
+        text: d.text, createdAt: new Date(ts).toISOString(),
+      };
       store.append(entry);
       return entry;
     },
@@ -37,9 +73,9 @@ function createBridge(cfg) {
       const e = store.get(entryId);
       if (!e) throw new Error('找不到本地条目 ' + entryId);
       const d = defense.check(text);
-      const cipher = crypto.encrypt(d.text, key);
-      await kook.edit(e.msgId, cipher);
-      return store.update(entryId, { text: d.text });
+      const next = { ...e, date: e.date || dateOf(e.ts), tags: normalizeTags(e.tags) };
+      await kook.edit(e.msgId, formatMessage(next, d.text, key));
+      return store.update(entryId, { text: d.text, date: next.date, tags: next.tags });
     },
 
     async forget(entryId) {
@@ -65,9 +101,9 @@ function createBridge(cfg) {
     },
 
     recall: (kw) => store.recall(kw),
-    // 人工核对用：解一条群上密文
-    peek: (cipher) => crypto.decrypt(cipher, key),
+    // 人工核对用：解一条群上消息（新格式或旧全密文）
+    peek: (content) => parseMessage(content, key).text,
   };
 }
 
-module.exports = { createBridge, defense };
+module.exports = { createBridge, defense, formatMessage, parseMessage, normalizeTags, dateOf };

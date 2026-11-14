@@ -1,10 +1,10 @@
 'use strict';
-// mock 全链路 e2e：retain → 密文落库校验 → edit → pin/unpin → recall → forget → 篡改拒绝 → 历史回读
+// mock 全链路 e2e：[日期]标签明文+正文密文 → retain → edit 同 msgId → pin/unpin → recall → forget → 篡改拒绝 → 历史回读 → passphrase 派生
 process.env.KOOK_MEMORY_HOME = require('os').tmpdir() + '/kmb-e2e-' + Date.now();
 const assert = require('assert');
 const { createMock } = require('../mock/kook-mock');
 const { loadOrCreate, homeDir } = require('../src/config');
-const { createBridge } = require('../src/bridge');
+const { createBridge, parseMessage } = require('../src/bridge');
 const { decrypt, keyFromHex } = require('../src/crypto');
 const { createKook } = require('../src/kook');
 const store = require('../src/store');
@@ -21,20 +21,23 @@ const store = require('../src/store');
   const key = keyFromHex(cfg.key);
   const results = [];
 
-  // 1. retain：群上是密文，索引是明文，召回命中
+  // 1. retain：首行明文 [日期] 标签，第二行 kmb1 密文；索引明文；召回命中
   const e1 = await bridge.retain('本机直连 discord.com 可达', ['#fact', '#hindsight-tg']);
-  const stored1 = mock.state.messages.get(e1.msgId).content;
-  assert(stored1.startsWith('kmb1:'), '群上应为 kmb1 密文');
-  assert(!stored1.includes('discord'), '密文不得泄漏明文关键词');
+  const wire1 = mock.state.messages.get(e1.msgId).content;
+  assert(/^\[\d{4}-\d{2}-\d{2}\] #fact #hindsight-tg\n/.test(wire1), '首行应为明文日期+标签: ' + wire1.split('\n')[0]);
+  const cipher1 = wire1.split('\n')[1];
+  assert(cipher1 && cipher1.startsWith('kmb1:'), '第二行应为 kmb1 密文');
+  assert(!wire1.includes('discord'), '密文不得泄漏明文关键词');
   assert(bridge.recall('discord')[0].text.includes('discord'), '本地召回应命中明文');
-  results.push('✓ retain：群密文 / 索引明文 / 召回命中');
+  results.push('✓ retain：[日期] 标签明文 + 正文密文 / 索引明文 / 召回命中');
 
-  // 2. edit：原位更新，群与索引一致
+  // 2. edit：原位更新，同一消息，日期与标签保留
   await bridge.edit(e1.id, '改口：本机直连 KOOK 0.9s');
-  const stored1b = mock.state.messages.get(e1.msgId).content;
-  assert(decrypt(stored1b, key) === '改口：本机直连 KOOK 0.9s', '群上密文解密应为新文本');
+  const wire1b = mock.state.messages.get(e1.msgId).content;
+  assert(parseMessage(wire1b, key).text === '改口：本机直连 KOOK 0.9s', '频道消息解密应为新文本');
+  assert(/^\[\d{4}-\d{2}-\d{2}\] #fact #hindsight-tg\n/.test(wire1b), '编辑后明文头部应保留');
   assert(store.get(e1.id).text === '改口：本机直连 KOOK 0.9s', '索引应同步更新');
-  results.push('✓ edit：群密文与索引原位一致');
+  results.push('✓ edit：同 msgId 原位更新，日期/标签保留');
 
   // 3. pin/unpin
   await bridge.pin(e1.id);
@@ -55,18 +58,18 @@ const store = require('../src/store');
   results.push('✓ forget：群 + 索引双侧删除');
 
   // 6. 完整性：翻转密文最后一个字节，GCM 必须拒绝
-  const raw = Buffer.from(stored1b.slice(5), 'base64');
+  const cipherNow = wire1b.split('\n')[1];
+  const raw = Buffer.from(cipherNow.slice(5), 'base64');
   raw[raw.length - 1] ^= 0xff;
-  const tampered = 'kmb1:' + raw.toString('base64');
   let threw = false;
-  try { decrypt(tampered, key); } catch { threw = true; }
+  try { decrypt('kmb1:' + raw.toString('base64'), key); } catch { threw = true; }
   assert(threw, '篡改密文必须解密失败');
   results.push('✓ 完整性：篡改被 GCM auth tag 拒绝');
 
-  // 7. 回读历史：全为密文（重建索引的入口）
+  // 7. 回读历史：全部可按新格式解析
   const history = await createKook(cfg).list();
-  assert(history.length >= 1 && history.every(h => h.content.startsWith('kmb1:')), '回读历史全为密文');
-  results.push('✓ list：回读历史均为 kmb1 密文');
+  assert(history.length >= 1 && history.every(h => parseMessage(h.content, key).legacy === false), '回读历史应全为新格式');
+  results.push('✓ list：回读历史均为 [日期]标签 + 密文格式');
 
   // 8. passphrase 派生模式：同口令同 salt 必须可复现，异口令必须解不开
   const cryptoMod = require('../src/crypto');

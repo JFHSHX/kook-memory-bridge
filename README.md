@@ -1,6 +1,15 @@
 # kook-memory-bridge
 
-tg-memory-bridge 的 KOOK 后端原型：**KOOK 频道存密文 + 本地索引存明文**，AES-256-GCM 端侧加密，零依赖（Node ≥18 内置能力）。
+tg-memory-bridge 的 KOOK 后端原型：**日期与标签明文、正文 AES-256-GCM 密文**，本地索引存明文用于召回，零依赖（Node ≥18 内置能力）。已提供同款 DSH 插件（`~/.dsh/dsh-go/plugins/kook-memory-bridge`，含 kook_edit/kook_forget 与生命周期注入）。
+
+## 消息格式
+
+```text
+[2026-11-14] #fact #kook-bridge
+kmb1:<base64(iv|authTag|ciphertext)>
+```
+
+首行元数据明文，KOOK 客户端可直接按日期/标签浏览；正文密文。早期无元数据行的全密文消息仍可解析。
 
 ## 威胁模型与结论
 
@@ -58,9 +67,10 @@ test/e2e.js     mock 全链路：发/改/删/钉/召回/篡改拒绝/历史回�
 ## Roadmap
 
 - [x] 实弹验证：KOOK type 9 原位 update 真机生效（2026-11-06，edit 全程 ~1.2s，pin/unpin 权限确认）
-- [ ] 接入 tg-memory-bridge 的 Memory Defense（30+ 类 redact）钩子
-- [ ] 置顶画像卡（明文摘要当目录）与 digest 三态对账
-- [ ] 并入 DSH 插件（对齐 tg-memory-bridge 的生命周期钩子）
+- [x] DSH 插件化（2026-11-14）：kook_status/retain/recall/forget/edit/pin + pre-step 记忆注入，已装 web profile
+- [x] Memory Defense 30+ 类接入（插件 core.js，redact 三态）+ 明文置顶画像卡
+- [ ] kook_digest（子代理 handoff/commit，对齐 tg 三态对账）
+- [ ] 语义召回（sqlite-vec）
 
 ## License
 

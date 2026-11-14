@@ -1,0 +1,12 @@
+{
+  "name": "kook-memory-bridge",
+  "version": "0.1.0",
+  "description": "KOOK channel as durable memory for DeepSeek Harness: kook_status / kook_retain / kook_recall / kook_forget / kook_edit / kook_pin + lifecycle injection; 日期与标签明文，正文 AES-256-GCM 加密",
+  "type": "module",
+  "main": "lib/index.js",
+  "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "kook", "memory", "agents", "encryption"],
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node test/offline.mjs" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

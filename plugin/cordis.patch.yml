@@ -1,0 +1,6 @@
+# kook-memory-bridge 接线补丁。禁止写入任何敏感值（botToken/key/channelId）。
+# 敏感配置去处：~/.dsh/kook-memory/config.json（本地，永不入库）或环境变量 KOOK_BOT_TOKEN。
+- insert:
+    - id: kook-memory-bridge
+      name: kook-memory-bridge
+      config: {}
