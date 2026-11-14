@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { apply, __internals } from '../lib/index.js';
-import { parseMemoryMessage, encryptBody } from '../lib/core.js';
+import { parseMemoryMessage, encryptBody, formatMemoryMessage } from '../lib/core.js';
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kook-plugin-test-'));
 const key = '11'.repeat(32);
@@ -45,7 +45,17 @@ globalThis.fetch = async (input, options = {}) => {
     if (endpoint === '/message/pin') pins.add(body.msg_id); else pins.delete(body.msg_id);
     return reply([]);
   }
-  if (endpoint === '/message/view') return reply(messages.get(url.searchParams.get('msg_id')));
+  if (endpoint === '/message/view') {
+    const value = messages.get(url.searchParams.get('msg_id'));
+    return value ? reply(value) : reply(null, 40000, '消息不存在');
+  }
+  if (endpoint === '/message/list') {
+    const size = Number(url.searchParams.get('page_size') || 50);
+    const cursor = url.searchParams.get('msg_id');
+    const all = [...messages.values()].sort((a, b) => b.create_at - a.create_at || a.id.localeCompare(b.id));
+    const start = cursor ? all.findIndex(m => m.id === cursor) + 1 : 0;
+    return reply({ items: all.slice(start, start + size) });
+  }
   throw new Error(`未 mock 的端点: ${endpoint}`);
 };
 
@@ -67,9 +77,9 @@ const defs = {};
 const ctx = makeCtx(def => { defs[def.name] = def; });
 apply(ctx, { dataDir, botToken: 'mock-token', channelId: 'channel-1', key });
 assert.deepEqual(Object.keys(defs), [
-  'kook_status', 'kook_retain', 'kook_recall', 'kook_forget', 'kook_edit', 'kook_pin',
+  'kook_status', 'kook_retain', 'kook_recall', 'kook_rebuild', 'kook_bank', 'kook_forget', 'kook_edit', 'kook_pin',
 ]);
-console.log('✓ 6 个工具注册');
+console.log('✓ 8 个工具注册');
 
 const status = await defs.kook_status.execute({});
 assert.equal(status.ok, true);
@@ -82,9 +92,11 @@ const r1 = await defs.kook_retain.execute({
 const originalWire = messages.get(r1.msgId).content;
 const [header, cipher] = originalWire.split('\n');
 assert.match(header, /^\[\d{4}-\d{2}-\d{2}\] #fact #kook$/);
-assert.ok(cipher.startsWith('kmb1:'));
+assert.ok(cipher.startsWith('kmb2:'));
 assert.ok(!originalWire.includes('用户偏好'));
 assert.equal(parseMemoryMessage(originalWire, keyBuf).text, '用户偏好中文，KOOK 记忆正文需要加密');
+assert.equal(parseMemoryMessage(originalWire, keyBuf).unit.bank, 'default');
+assert.ok(parseMemoryMessage(originalWire, keyBuf).unit.documentId);
 console.log('✓ retain：日期/标签明文，正文密文');
 
 const recalled = await defs.kook_recall.execute({ query: '中文' });
@@ -139,10 +151,55 @@ console.log('✓ forget by query：频道与索引双侧删除');
 
 deleteFailures.add(r1.msgId);
 const forgotten1 = await defs.kook_forget.execute({ id: r1.id });
+assert.equal(forgotten1.ok, false);
 assert.equal(forgotten1.deleted_in_kook, false);
-assert.equal(forgotten1.removed_from_index, 1);
-assert.ok(forgotten1.note.includes('模拟删除失败'));
-console.log('✓ 频道删除失败不伪报成功，结果带原因');
+assert.equal(forgotten1.removed_from_index, 0);
+assert.ok(forgotten1.error.includes('模拟删除失败'));
+assert.equal((await defs.kook_recall.execute({ query: '正文已改' })).count, 1, '主库删除失败时缓存必须保留');
+console.log('✓ 频道删除失败：不伪报成功且缓存保留');
+
+// bank 配置与严格隔离：配置本身也随 KOOK 重建
+const configured = await defs.kook_bank.execute({ action: 'set', bank: 'project', config: { disposition: { skepticism: 5 }, retainExtractionMode: 'verbose' } });
+assert.equal(configured.config.disposition.skepticism, 5);
+assert.equal(configured.config.disposition.literalism, 3);
+const otherBank = await defs.kook_retain.execute({ bank: 'project', text: '项目 bank 专属记忆', tags: ['#fact'] });
+assert.equal((await defs.kook_recall.execute({ query: '项目 bank 专属记忆' })).count, 0);
+assert.equal((await defs.kook_recall.execute({ query: '项目 bank 专属记忆', bank: 'project' })).hits[0].id, otherBank.msgId);
+const bankGet = await defs.kook_bank.execute({ action: 'get', bank: 'project' });
+assert.equal(bankGet.config.retainExtractionMode, 'verbose');
+console.log('✓ kook_bank set/get + 严格跨 bank 召回隔离');
+
+// 缓存可删除：召回发现无缓存时自动从 KOOK 重建，id 仍是 msgId
+const r3 = await defs.kook_retain.execute({ text: '缓存重建金丝雀', tags: ['#exp'] });
+fs.rmSync(path.join(dataDir, 'index.jsonl'));
+const auto = await defs.kook_recall.execute({ query: '缓存重建金丝雀' });
+assert.equal(auto.rebuilt, true);
+assert.equal(auto.hits[0].id, r3.msgId);
+assert.equal(auto.hits[0].text, '缓存重建金丝雀');
+console.log('✓ 缓存删除后自动重建，id=msgId 稳定');
+
+// 超过一页：55 条额外记忆 + 前面数据，必须翻页完整恢复
+for (let i = 0; i < 55; i++) {
+  const id = `bulk-${i}`;
+  const ts = Date.now() - 100000 - i * 1000;
+  messages.set(id, {
+    id, create_at: ts,
+    content: formatMemoryMessage({ ts, tags: ['#bulk'] }, `批量记忆 ${i}`, keyBuf),
+  });
+}
+const rebuilt = await defs.kook_rebuild.execute({});
+assert.ok(rebuilt.scanned >= 58);
+assert.ok(rebuilt.imported >= 57);
+assert.ok(rebuilt.non_memory >= 1, '明文画像卡不应进入记忆缓存');
+assert.equal((await defs.kook_recall.execute({ query: '批量记忆 54' })).hits[0].id, 'bulk-54');
+assert.equal((await defs.kook_bank.execute({ action: 'get', bank: 'project' })).config.disposition.skepticism, 5, 'bank config 必须随重建保留');
+console.log(`✓ 全量分页重建：扫描 ${rebuilt.scanned}，导入 ${rebuilt.imported}，非记忆 ${rebuilt.non_memory}`);
+
+// 无缓存时也能按 msgId 直接读取 KOOK 并编辑
+fs.rmSync(path.join(dataDir, 'index.jsonl'));
+await defs.kook_edit.execute({ msgId: r3.msgId, text: '无缓存直接编辑成功' });
+assert.equal(parseMemoryMessage(messages.get(r3.msgId).content, keyBuf).text, '无缓存直接编辑成功');
+console.log('✓ 无缓存时按 msgId 从主库读取并编辑');
 
 const legacyCipher = encryptBody('旧格式正文', keyBuf);
 assert.equal(parseMemoryMessage(legacyCipher, keyBuf).text, '旧格式正文');

@@ -1,15 +1,15 @@
 # kook-memory-bridge
 
-tg-memory-bridge 的 KOOK 后端原型：**日期与标签明文、正文 AES-256-GCM 密文**，本地索引存明文用于召回，零依赖（Node ≥18 内置能力）。已提供同款 DSH 插件（`~/.dsh/dsh-go/plugins/kook-memory-bridge`，含 kook_edit/kook_forget 与生命周期注入）。
+KOOK 加密长期记忆库：**KOOK 是唯一事实源，本地索引只是可重建缓存**。日期与标签明文，正文 AES-256-GCM 加密；`kmb2` 结构化单元保存 bank、文档、双时间轴、实体、链接与证据。零依赖 Node 标准库，附 DSH 插件与 Hindsight 复刻功能矩阵（[docs/hindsight-feature-matrix.md](docs/hindsight-feature-matrix.md)）。
 
 ## 消息格式
 
 ```text
-[2026-11-14] #fact #kook-bridge
-kmb1:<base64(iv|authTag|ciphertext)>
+[2026-11-15] #fact #kook-bridge
+kmb2:<base64(iv|authTag|json-ciphertext)>
 ```
 
-首行元数据明文，KOOK 客户端可直接按日期/标签浏览；正文密文。早期无元数据行的全密文消息仍可解析。
+首行元数据明文，KOOK 客户端可直接按日期/标签浏览。`kmb2` 解密后为 MemoryUnit JSON；早期 `kmb1` 纯文本与无元数据行的消息继续兼容。缓存可从频道全量分页重建，稳定 id 永远等于 KOOK `msgId`。
 
 ## 威胁模型与结论
 
@@ -64,13 +64,19 @@ mock/           KOOK /api/v3 内存 mock（应答封包与官方一致）
 test/e2e.js     mock 全链路：发/改/删/钉/召回/篡改拒绝/历史回读
 ```
 
+## Hindsight 复刻进度
+
+已完成并实测：KOOK 主库＋原子重建缓存、稳定 msgId、`kmb2` MemoryUnit、严格 bank 隔离与可重建 bank config、文档 hash/切块、46 类 Defense＋KOOK token＋Luhn/UUID/指纹、observation scope/证据/历史保留纯函数、mental model watermark/stale/块级 delta 与 knowledge-page 投影。
+
+进行中：TEMPR 四路检索与 RRF、embedding/rerank provider、LLM 叙事抽取与 reflect、consolidation/mental-model 工具接入、MCP。独立 `src/` CLI 仍是早期 `kmb1` 兼容实现，新能力优先集中在 `plugin/`。
+
 ## Roadmap
 
-- [x] 实弹验证：KOOK type 9 原位 update 真机生效（2026-11-06，edit 全程 ~1.2s，pin/unpin 权限确认）
-- [x] DSH 插件化（2026-11-14）：kook_status/retain/recall/forget/edit/pin + pre-step 记忆注入，已装 web profile
-- [x] Memory Defense 30+ 类接入（插件 core.js，redact 三态）+ 明文置顶画像卡
-- [ ] kook_digest（子代理 handoff/commit，对齐 tg 三态对账）
-- [ ] 语义召回（sqlite-vec）
+- [x] KOOK type 9 原位编辑与 pin/unpin 实弹
+- [x] DSH 插件与生命周期注入
+- [x] KOOK 主库＋可重建缓存（真实频道删除缓存后恢复）
+- [x] kmb2 富字段与 bank config 真实频道重建
+- [ ] TEMPR / LLM reflect / embedding / MCP（见功能矩阵 P0–P3）
 
 ## License
 

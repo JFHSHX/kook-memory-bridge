@@ -4,6 +4,8 @@ import path from 'node:path';
 import {
   createCipheriv, createDecipheriv, randomBytes, scryptSync,
 } from 'node:crypto';
+import { encodeUnit, decodeUnit, normalizeUnit } from './units.js';
+import { applyDefense } from './defense.js';
 
 export const MAX_TEXT = 3500;
 export const API_BASE = 'https://www.kookapp.cn/api/v3';
@@ -72,17 +74,21 @@ export function resolveKey(cfg) {
   return key;
 }
 
-export function encryptBody(text, key) {
+function encryptPayload(text, key, prefix) {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const body = Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]);
-  return PREFIX + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64');
+  return prefix + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64');
 }
+
+export function encryptBody(text, key) { return encryptPayload(text, key, PREFIX); }
+export function encryptUnit(unit, key) { return encryptPayload(encodeUnit(unit), key, 'kmb2:'); }
 
 export function decryptBody(blob, key) {
   const text = String(blob);
-  if (!text.startsWith(PREFIX)) throw new Error('不是 kmb1 密文');
-  const raw = Buffer.from(text.slice(PREFIX.length), 'base64');
+  const prefix = text.startsWith('kmb2:') ? 'kmb2:' : (text.startsWith(PREFIX) ? PREFIX : '');
+  if (!prefix) throw new Error('不是 kmb1/kmb2 密文');
+  const raw = Buffer.from(text.slice(prefix.length), 'base64');
   if (raw.length < 29) throw new Error('密文过短或已损坏');
   const decipher = createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
   decipher.setAuthTag(raw.subarray(12, 28));
@@ -105,6 +111,12 @@ export function formatMemoryMessage(entry, text, key) {
   return `${header}\n${encryptBody(text, key)}`;
 }
 
+export function formatUnitMessage(input, key) {
+  const unit = normalizeUnit(input);
+  const date = input.date || dateOf(unit.mentionedAt);
+  return `[${date}] ${normalizeTags(unit.tags).join(' ')}\n${encryptUnit(unit, key)}`;
+}
+
 // 同时兼容早期“整条消息只有 kmb1 密文”的格式。
 export function parseMemoryMessage(content, key) {
   const raw = String(content || '').trim();
@@ -113,12 +125,15 @@ export function parseMemoryMessage(content, key) {
   const header = split >= 0 ? raw.slice(0, split) : '';
   const body = split >= 0 ? raw.slice(split + 1).trim() : '';
   const match = header.match(/^\[(\d{4}-\d{2}-\d{2})\]\s*(.*)$/);
-  if (!match || !body.startsWith(PREFIX)) throw new Error('无法识别 KOOK 记忆消息格式');
+  if (!match || !/^kmb[12]:/.test(body)) throw new Error('无法识别 KOOK 记忆消息格式');
+  const plain = decryptBody(body, key);
+  const structured = body.startsWith('kmb2:');
+  const unit = structured ? decodeUnit(plain) : null;
+  if (structured && !unit) throw new Error('kmb2 结构化载荷无效');
+  const tags = normalizeTags((match[2].match(/#[^\s#]+/g) || []).join(' ').split(' '));
   return {
-    date: match[1],
-    tags: normalizeTags((match[2].match(/#[^\s#]+/g) || []).join(' ').split(' ')),
-    text: decryptBody(body, key),
-    legacy: false,
+    date: match[1], tags, text: unit ? unit.text : plain,
+    unit: unit ? { ...unit, tags } : null, legacy: false, structured,
   };
 }
 
@@ -176,6 +191,13 @@ export function readMemory(dir) {
     tags: normalizeTags(e.tags),
     text: String(e.text || ''),
     date: e.date || dateOf(Number(e.ts || Date.now())),
+    bank: e.bank || 'default', kind: e.kind || 'memory', factType: e.factType || e.fact_type || 'world',
+    documentId: e.documentId || e.document_id || null,
+    occurredStart: e.occurredStart || e.occurred_start || null,
+    occurredEnd: e.occurredEnd || e.occurred_end || null,
+    mentionedAt: e.mentionedAt || e.mentioned_at || null,
+    entities: Array.isArray(e.entities) ? e.entities : [], links: Array.isArray(e.links) ? e.links : [],
+    proofCount: Number(e.proofCount || e.proof_count || 1),
   }));
 }
 
@@ -190,6 +212,64 @@ export function appendMemory(dir, entry) {
   fs.appendFileSync(path.join(dir, 'index.jsonl'), JSON.stringify(entry) + '\n');
 }
 
+export function cacheExists(dir) { return fs.existsSync(path.join(dir, 'index.jsonl')); }
+
+/**
+ * 从 KOOK 全量重建缓存。只有完整分页结束后才原子替换 index.jsonl；
+ * 中途网络失败不会破坏旧缓存。id 永远等于 msgId，因此换机/重建后定位不变。
+ */
+export async function rebuildCache(cfg, dir, { pageSize = 50, maxPages = 200 } = {}) {
+  const channelId = requireChannel(cfg, readState(dir));
+  const key = resolveKey(cfg);
+  const seen = new Map();
+  let cursor = '';
+  for (let page = 0; page < maxPages; page++) {
+    const data = await kook.list(cfg, channelId, { pageSize, msgId: cursor, flag: 'before' });
+    const items = Array.isArray(data?.items) ? data.items : [];
+    for (const item of items) seen.set(String(item.id), item);
+    if (items.length < pageSize) break;
+    const oldest = items.reduce((a, b) => Number(a.create_at || 0) <= Number(b.create_at || 0) ? a : b);
+    const next = String(oldest.id || '');
+    if (!next || next === cursor) throw new Error('KOOK 历史分页游标未前进，重建已中止且旧缓存未改动');
+    cursor = next;
+    if (page === maxPages - 1) throw new Error(`历史超过 ${maxPages * pageSize} 条，重建已中止且旧缓存未改动`);
+  }
+
+  const rows = [];
+  const errors = [];
+  let nonMemory = 0;
+  for (const item of seen.values()) {
+    const content = String(item.content || '').trim();
+    const looksMemory = content.startsWith('kmb1:') || /^\[\d{4}-\d{2}-\d{2}\][^\n]*\nkmb[12]:/.test(content);
+    if (!looksMemory) { nonMemory++; continue; }
+    const msgId = String(item.id);
+    try {
+      const parsed = parseMemoryMessage(content, key);
+      const ts = Number(item.create_at || Date.now());
+      rows.push({
+        ...(parsed.unit || {}),
+        id: msgId, msgId, ts,
+        date: parsed.date || dateOf(ts),
+        tags: parsed.legacy ? ['#fact'] : normalizeTags(parsed.tags),
+        text: parsed.text,
+        createdAt: new Date(ts).toISOString(),
+      });
+    } catch (error) {
+      errors.push({ msgId, error: String(error?.message || error).slice(0, 160) });
+    }
+  }
+  rows.sort((a, b) => a.ts - b.ts || a.msgId.localeCompare(b.msgId));
+  writeMemory(dir, rows);
+  const state = readState(dir);
+  writeState(dir, { ...state, channelId, lastRebuildAt: new Date().toISOString(), cacheCount: rows.length });
+  diag(dir, 'rebuild', { scanned: seen.size, imported: rows.length, failed: errors.length });
+  return {
+    ok: true, channelId, scanned: seen.size, imported: rows.length,
+    non_memory: nonMemory, failed: errors.length, errors: errors.slice(0, 10),
+    cache: path.join(dir, 'index.jsonl'),
+  };
+}
+
 export function scoreEntry(entry, terms, tagFilters, now = Date.now()) {
   const tags = (entry.tags || []).map(t => String(t).toLowerCase());
   if (tagFilters.length && !tagFilters.some(f => tags.some(t => t.includes(f)))) return -1;
@@ -202,7 +282,7 @@ export function scoreEntry(entry, terms, tagFilters, now = Date.now()) {
   }
   const days = Math.max(0, (now - (entry.ts || now)) / 86400000);
   const recency = Math.min(1, Math.max(0.1, 1 - days / 365));
-  const proof = Math.min(1, Math.max(0, 0.5 + Math.log(Math.max(1, entry.proof_count || 1)) / 10));
+  const proof = Math.min(1, Math.max(0, 0.5 + Math.log(Math.max(1, entry.proofCount || entry.proof_count || 1)) / 10));
   return base * (1 + 0.2 * (recency - 0.5)) * (1 + 0.1 * (proof - 0.5));
 }
 
@@ -217,10 +297,14 @@ function queryParts(query, tag) {
   return { terms, tagFilters };
 }
 
-export function recallMemory(dir, { query = '', tag = '', limit = 8 } = {}) {
+export function recallMemory(dir, { query = '', tag = '', limit = 8, bank = '', factTypes, kinds = ['memory', 'observation'] } = {}) {
   const { terms, tagFilters } = queryParts(query, tag);
   const now = Date.now();
-  return readMemory(dir).map(e => ({ e, score: scoreEntry(e, terms, tagFilters, now) }))
+  const kindSet = new Set(kinds);
+  const typeSet = factTypes ? new Set(Array.isArray(factTypes) ? factTypes : [factTypes]) : null;
+  return readMemory(dir)
+    .filter(e => (!bank || e.bank === bank) && kindSet.has(e.kind || 'memory') && (!typeSet || typeSet.has(e.factType)))
+    .map(e => ({ e, score: scoreEntry(e, terms, tagFilters, now) }))
     .filter(x => x.score >= 0)
     .sort((a, b) => b.score - a.score || (b.e.ts || 0) - (a.e.ts || 0))
     .slice(0, Math.min(50, Math.max(1, Number(limit) || 8)))
@@ -245,54 +329,12 @@ export function locateMemory(dir, args = {}) {
   throw new Error('需要 id、msgId 或 query 之一；推荐先用 kook_recall 获取 id');
 }
 
-const A_START = '(?<![A-Za-z0-9_])';
-const A_END = '(?![A-Za-z0-9_])';
-const tok = body => new RegExp(A_START + body + A_END);
-const SECRET_PATTERNS = [
-  ['anthropic_key', tok('sk-ant-[A-Za-z0-9_-]{20,}')],
-  ['openai_project_key', tok('sk-proj-[A-Za-z0-9_-]{48,}')],
-  ['openai_admin_key', tok('sk-admin-[A-Za-z0-9_-]{40,}')],
-  ['openai_key', tok('sk-[A-Za-z0-9_-]{20,}')],
-  ['google_api_key', tok('AIza[0-9A-Za-z_-]{35}')],
-  ['google_oauth', tok('ya29\\.[0-9A-Za-z_-]{20,}')],
-  ['xai_key', tok('xai-[A-Za-z0-9]{20,}')],
-  ['groq_key', tok('gsk_[A-Za-z0-9]{20,}')],
-  ['huggingface_token', tok('hf_[A-Za-z0-9]{20,}')],
-  ['replicate_token', tok('r8_[A-Za-z0-9]{20,}')],
-  ['perplexity_key', tok('pplx-[A-Za-z0-9]{20,}')],
-  ['databricks_token', tok('dapi[A-Za-z0-9]{32}')],
-  ['aws_access_key', tok('A(?:KIA|SIA)[0-9A-Z]{16}')],
-  ['digitalocean_token', tok('dop_v1_[0-9a-f]{64}')],
-  ['github_pat', tok('github_pat_[A-Za-z0-9_]{22,}')],
-  ['github_token', tok('gh[pousr]_[A-Za-z0-9]{36}')],
-  ['gitlab_pat', tok('glpat-[A-Za-z0-9_-]{20,}')],
-  ['npm_token', tok('npm_[A-Za-z0-9]{30,}')],
-  ['pypi_token', tok('pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{20,}')],
-  ['stripe_key', tok('[sr]k_(?:live|test)_[0-9a-zA-Z]{20,}')],
-  ['slack_token', tok('xox[abpr]-[0-9A-Za-z-]{10,}')],
-  ['slack_webhook', /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]{20,}/],
-  ['twilio_key', tok('S[KA][0-9a-fA-F]{32}')],
-  ['sendgrid_key', tok('SG\\.[A-Za-z0-9_-]{22}\\.[A-Za-z0-9_-]{43}')],
-  ['mailgun_key', tok('key-[A-Za-z0-9]{32}')],
-  ['discord_bot', tok('[MNO][A-Za-z0-9]{23}\\.[A-Za-z0-9_-]{6}\\.[A-Za-z0-9_-]{27}')],
-  ['telegram_bot_token', tok('\\d{8,10}:[A-Za-z0-9_-]{35}')],
-  ['kook_bot_token', /\d\/[A-Za-z0-9+/]{4,}={0,2}\/[A-Za-z0-9+/]{20,}={0,2}/],
-  ['shopify_token', tok('shpat_[0-9a-fA-F]{32}')],
-  ['db_connection_url', /(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s:@]+:[^\s@]+@[^\s]*/],
-  ['private_key_block', /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----/],
-  ['jwt', tok('eyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}')],
-  ['ssn_us', tok('\\d{3}-\\d{2}-\\d{4}')],
-].map(([name, re]) => ({ name, re }));
-
 export function defenseApply(cfg, input) {
-  if (cfg.defense === false) return { text: String(input), hits: [] };
-  let text = String(input);
-  const hits = SECRET_PATTERNS.filter(p => p.re.test(text)).map(p => p.name);
-  if (hits.length && cfg.defense === 'block') throw new Error(`疑似密钥/凭据（${hits.join(', ')}），已拦截`);
-  for (const p of SECRET_PATTERNS) {
-    if (hits.includes(p.name)) text = text.replace(new RegExp(p.re.source, 'g'), `[REDACTED:${p.name}]`);
-  }
-  return { text, hits };
+  const result = applyDefense(input, {
+    action: cfg.defense === false ? 'allow' : (cfg.defense === 'block' ? 'block' : 'redact'),
+    promptInjection: cfg.promptInjection || 'off',
+  });
+  return { ...result, hits: result.matchedTypes, auditHits: result.hits };
 }
 
 export function diag(dir, event, fields = {}) {
