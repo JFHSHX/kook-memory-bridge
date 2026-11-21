@@ -9,7 +9,7 @@
   "license": "MIT",
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node test/units.mjs && node test/banks-documents.mjs && node test/defense.mjs && node test/consolidation-mental.mjs && node test/retrieval.mjs && node test/embeddings.mjs && node test/search.mjs && node test/llm.mjs && node test/advanced.mjs && node test/reflect-agent.mjs && node test/pages.mjs && node test/consolidation-state.mjs && node test/http-server.mjs && node test/embedding-fallback.mjs && node test/mcp.mjs && node test/channels.mjs && node test/offline.mjs"
+    "test": "node test/units.mjs && node test/banks-documents.mjs && node test/defense.mjs && node test/consolidation-mental.mjs && node test/retrieval.mjs && node test/embeddings.mjs && node test/search.mjs && node test/llm.mjs && node test/advanced.mjs && node test/auto-capture.mjs && node test/reflect-agent.mjs && node test/pages.mjs && node test/consolidation-state.mjs && node test/http-server.mjs && node test/embedding-fallback.mjs && node test/mcp.mjs && node test/channels.mjs && node test/offline.mjs"
   },
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 }
