@@ -43,7 +43,9 @@ function createMock() {
         return reply([]);
       }
       if (p === '/message/list') {
-        const items = [...state.messages.values()].map(m => ({ id: m.id, content: m.content, create_at: m.create_at }));
+        const target = url.searchParams.get('target_id');
+        const all = [...state.messages.values()].filter(m => !target || m.target_id === target);
+        const items = all.map(m => ({ id: m.id, content: m.content, create_at: m.create_at }));
         return reply({ items });
       }
       fail(404, 'mock 未实现 ' + p);

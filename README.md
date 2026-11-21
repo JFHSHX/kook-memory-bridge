@@ -13,7 +13,7 @@ KOOK 加密长期记忆引擎，复刻 [vectorize-io/hindsight](https://github.c
 - **TEMPR**：BM25 关键词、可选 embedding 语义、时间窗与时间桶、语义种子的 link expansion、RRF(k=60)、三类乘法 boost、token 预算
 - **providers**：确定性 lexical-hash 回退、OpenAI-compatible embeddings、TEI/OpenAI-compatible rerank；故障回退 RRF
 - **观察与反思**：append-only/精确强化、LLM create/update/delete/skip、scope 隔离、证据与历史保留；reflect-lite 分层证据、引用 id 校验、directives
-- **mental models**：scoped stale、watermark、full/delta、未变块保留、50 版历史、knowledge-page 投影
+- **mental models**：scoped stale、watermark、full/delta、未变块保留、最多 5 个证据 ID、2 条历史预览、knowledge-page 投影
 - **Defense**：上游当前 46 类＋KOOK token；CJK 边界、Luhn/UUID、指纹审计，可选 prompt-injection 检测
 - **接入**：DSH 插件与生命周期注入、CLI、标准 MCP stdio（12 工具）
 
@@ -54,9 +54,17 @@ node cli.js status
 可选 provider：
 
 - `embeddingProvider=local`：离线 lexical-hash，**不是神经语义模型**
-- `embeddingProvider=openai-compatible`：另配 `embeddingBaseURL/embeddingModel/embeddingApiKeyEnv`
+- `embeddingProvider=openai-compatible`：另配 `embeddingBaseURL/embeddingModel/embeddingApiKeyEnv`；NVIDIA 非对称模型（如 `nvidia/nemotron-3.5-embed-8b`）再设 `embeddingQueryInputType=query`、`embeddingDocumentInputType=passage`
 - `rerankerProvider=tei|openai-compatible`：另配 `rerankerBaseURL/rerankerModel/rerankerApiKeyEnv`
+- 推理模型可设 `llmDisableThinking=true` 关闭 `chat_template_kwargs.enable_thinking`；慢速 embedding 可设 `embeddingTimeoutMs`（默认 30000）
 - 未配置 LLM 时，reflect 返回分层证据，consolidation 只做 append-only/精确强化
+- 多频道路由（可选）：在 config.json 配置 `channels`，把不同内容路由到不同频道；不配置则全部走主频道
+
+```json
+"channels": { "mental": "<Mental Model 频道 id>", "exp": "<经验日志频道 id>" }
+```
+
+`mental_model` 及其分块消息 → `mental`；`experience` 记忆 → `exp`；其余记忆/观察/配置 → 主频道。重建自动遍历所有配置频道合并（msgId 全局唯一，无重复）。
 
 ## DSH 工具
 
@@ -67,6 +75,19 @@ dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 ```
 
 代码变更后在 App「引擎」页重启。`autoCapture` 默认关闭，开启且配置 LLM 后才会在 turn-stopping 自动抽取。
+
+## 独立 Mental Model 调度器
+
+不使用 Hindsight API、DSH `schedule_create` 或 agent 会话。独立 Node.js 进程直接调用 KOOK 插件模块，支持小时级 stale/delta、每周 full、失败暂停与恢复：
+
+```bash
+node standalone/index.mjs --status
+node standalone/index.mjs --once delta
+node standalone/index.mjs --once full
+node standalone/index.mjs --daemon
+```
+
+详见 [standalone/README.md](standalone/README.md)。
 
 ## CLI 与 MCP
 

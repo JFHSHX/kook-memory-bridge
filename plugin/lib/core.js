@@ -63,6 +63,32 @@ export function requireChannel(cfg, state) {
   return channelId;
 }
 
+/**
+ * 多频道路由：按 unit 的 kind/documentId 决定目标频道。
+ * mental_model 与其分块（documentId 以 mental-model: 开头）→ channels.mental；
+ * experience 记忆 → channels.exp；其余 → 主频道。未配置对应频道时全部回落主频道。
+ */
+export function channelKindFor(unit = {}) {
+  const documentId = String(unit.documentId || '');
+  if (unit.kind === 'mental_model' || (unit.modelId && documentId.startsWith('mental-model:'))) return 'mental';
+  if ((unit.kind || 'memory') === 'memory' && unit.factType === 'experience') return 'exp';
+  return 'memory';
+}
+
+export function channelFor(cfg, unit) {
+  const kind = channelKindFor(unit);
+  return String(cfg?.channels?.[kind] || cfg?.channelId || process.env.KOOK_CHANNEL_ID || '').trim();
+}
+
+export function channelList(cfg) {
+  const list = [String(cfg?.channelId || cfg?.channels?.memory || '').trim()];
+  for (const key of ['mental', 'exp']) {
+    const value = String(cfg?.channels?.[key] || '').trim();
+    if (value) list.push(value);
+  }
+  return [...new Set(list.filter(Boolean))];
+}
+
 export function resolveKey(cfg) {
   if (cfg.passphrase) {
     if (!cfg.kdfSalt) throw new Error('passphrase 模式缺少 kdfSalt；重载插件后会自动补齐');
@@ -221,20 +247,23 @@ export function cacheExists(dir) { return fs.existsSync(path.join(dir, 'index.js
  * 中途网络失败不会破坏旧缓存。id 永远等于 msgId，因此换机/重建后定位不变。
  */
 export async function rebuildCache(cfg, dir, { pageSize = 50, maxPages = 200 } = {}) {
-  const channelId = requireChannel(cfg, readState(dir));
+  requireChannel(cfg, readState(dir));
+  const channels = channelList(cfg);
   const key = resolveKey(cfg);
   const seen = new Map();
-  let cursor = '';
-  for (let page = 0; page < maxPages; page++) {
-    const data = await kook.list(cfg, channelId, { pageSize, msgId: cursor, flag: 'before' });
-    const items = Array.isArray(data?.items) ? data.items : [];
-    for (const item of items) seen.set(String(item.id), item);
-    if (items.length < pageSize) break;
-    const oldest = items.reduce((a, b) => Number(a.create_at || 0) <= Number(b.create_at || 0) ? a : b);
-    const next = String(oldest.id || '');
-    if (!next || next === cursor) throw new Error('KOOK 历史分页游标未前进，重建已中止且旧缓存未改动');
-    cursor = next;
-    if (page === maxPages - 1) throw new Error(`历史超过 ${maxPages * pageSize} 条，重建已中止且旧缓存未改动`);
+  for (const channelId of channels) {
+    let cursor = '';
+    for (let page = 0; page < maxPages; page++) {
+      const data = await kook.list(cfg, channelId, { pageSize, msgId: cursor, flag: 'before' });
+      const items = Array.isArray(data?.items) ? data.items : [];
+      for (const item of items) seen.set(String(item.id), item);
+      if (items.length < pageSize) break;
+      const oldest = items.reduce((a, b) => Number(a.create_at || 0) <= Number(b.create_at || 0) ? a : b);
+      const next = String(oldest.id || '');
+      if (!next || next === cursor) throw new Error('KOOK 历史分页游标未前进，重建已中止且旧缓存未改动');
+      cursor = next;
+      if (page === maxPages - 1) throw new Error(`历史超过 ${maxPages * pageSize} 条，重建已中止且旧缓存未改动`);
+    }
   }
 
   const rows = [];
@@ -263,10 +292,10 @@ export async function rebuildCache(cfg, dir, { pageSize = 50, maxPages = 200 } =
   rows.sort((a, b) => a.ts - b.ts || a.msgId.localeCompare(b.msgId));
   writeMemory(dir, rows);
   const state = readState(dir);
-  writeState(dir, { ...state, channelId, lastRebuildAt: new Date().toISOString(), cacheCount: rows.length });
-  diag(dir, 'rebuild', { scanned: seen.size, imported: rows.length, failed: errors.length });
+  writeState(dir, { ...state, channelId: channels[0], channels, lastRebuildAt: new Date().toISOString(), cacheCount: rows.length });
+  diag(dir, 'rebuild', { channels: channels.length, scanned: seen.size, imported: rows.length, failed: errors.length });
   return {
-    ok: true, channelId, scanned: seen.size, imported: rows.length,
+    ok: true, channelId: channels[0], channels, scanned: seen.size, imported: rows.length,
     non_memory: nonMemory, failed: errors.length, errors: errors.slice(0, 10),
     cache: path.join(dir, 'index.jsonl'),
   };

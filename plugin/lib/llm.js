@@ -63,13 +63,18 @@ export function createLLMClient(config = {}, { fetch: fetchImpl = globalThis.fet
     model,
     async complete(messages, { responseFormat, temperature = 0.1, maxTokens = 3000, timeoutMs = 60000 } = {}) {
       if (!client.enabled) throw new Error(`LLM 未配置：需要 llmBaseURL、llmModel 与 ${apiKeyEnv}；可用 chunks/verbatim 离线模式`);
-      const body = { model, messages, temperature, max_tokens: maxTokens };
+      const body = { model, messages, temperature, max_tokens: maxTokens, ...(config.llmDisableThinking ? { chat_template_kwargs: { enable_thinking: false } } : {}) };
       if (responseFormat) body.response_format = responseFormat;
-      const json = await chatRequest(fetchImpl, `${baseURL}/chat/completions`, { apiKey, body, timeoutMs, retries: 1 });
-      const content = json.choices?.[0]?.message?.content;
-      if (typeof content === 'string') return content;
-      if (Array.isArray(content)) return content.map(part => part?.text || '').join('');
-      throw new Error('LLM 响应缺少 choices[0].message.content');
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const json = await chatRequest(fetchImpl, `${baseURL}/chat/completions`, { apiKey, body, timeoutMs, retries: 1 });
+        const content = json.choices?.[0]?.message?.content;
+        if (typeof content === 'string' && content.trim()) return content;
+        if (Array.isArray(content)) {
+          const joined = content.map(part => part?.text || '').join('');
+          if (joined.trim()) return joined;
+        }
+      }
+      throw new Error('LLM 响应缺少 choices[0].message.content（已重试）');
     },
     async completeJson(messages, options = {}) {
       const raw = await client.complete(messages, { ...options, responseFormat: options.responseFormat || { type: 'json_object' } });
@@ -101,7 +106,7 @@ export function parseExtractedFacts(raw, { bank = 'default', documentId, chunkId
   const list = Array.isArray(raw) ? raw : raw?.facts;
   if (!Array.isArray(list)) throw new Error('事实抽取结果缺少 facts 数组');
   if (list.length > 20) throw new Error('单次抽取事实超过 20 条，已拒绝');
-  return list.map((fact, index) => {
+  return list.filter(fact => String(fact?.text || fact?.fact || '').trim()).map((fact, index) => {
     const factType = fact.factType || fact.fact_type || 'world';
     const autoTag = factType === 'experience' ? '#exp' : factType === 'observation' ? '#observation' : factType === 'opinion' ? '#opinion' : '#fact';
     return normalizeUnit({
@@ -148,6 +153,7 @@ export function buildMentalModelDeltaPrompt({ model, newMemories = [] }) {
     { role: 'system', content: [
       '对 mental model 做增量编辑，不重写全文。未触及块必须逐字保留。',
       '块格式 <!-- mm:block-id -->。只输出 JSON：{"operations":[{"action":"replace|append|delete","id":"block-id","text":"..."}]}。',
+      'id 必须原样使用现有块标记中的 block-id，不要包含 mm: 前缀。已有事实变化时必须 replace 对应块，不得 append 新值或保留过期值；只有新增主题才使用新 id。',
       '无基线或问题改变时才全量生成；空答案不是有效刷新。',
     ].join('\n') },
     { role: 'user', content: JSON.stringify({ sourceQuery: model.payload?.sourceQuery || model.question, current: model.text, newMemories: newMemories.map(m => ({ id: m.id || m.msgId, text: m.text, ts: m.ts })) }) },

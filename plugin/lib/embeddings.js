@@ -87,10 +87,10 @@ export function createEmbeddingProvider(config = {}, { fetch: fetchImpl = global
   if (!baseURL) throw new Error('远程 embedding 需要 embeddingBaseURL（OpenAI 兼容 /v1 地址）');
   const apiKey = config.embeddingApiKey || env[apiKeyEnv] || '';
   if (!apiKey) throw new Error(`远程 embedding 缺少 API key：设置 ${apiKeyEnv} 或改 embeddingProvider=local`);
-  async function embed(entries) {
+  async function embed(entries, inputType) {
     const inputs = entries.map(embeddingInput);
     const json = await request(fetchImpl, `${baseURL}/embeddings`, {
-      apiKey, body: { model, input: inputs }, retries: 1,
+      apiKey, body: { model, input: inputs, ...(inputType ? { input_type: inputType } : {}) }, retries: 1, timeoutMs: Number(config.embeddingTimeoutMs) || 30000,
     });
     if (!Array.isArray(json.data) || json.data.length !== inputs.length) throw new Error('embedding 返回数量与输入不一致');
     const vectors = json.data.sort((a, b) => a.index - b.index).map(item => item.embedding);
@@ -102,10 +102,10 @@ export function createEmbeddingProvider(config = {}, { fetch: fetchImpl = global
   }
   return {
     kind: 'openai-compatible', model, dimensions: config.embeddingDimensions || null,
-    async encodeQuery(text) { return (await embed([text]))[0]; },
+    async encodeQuery(text) { return (await embed([text], config.embeddingQueryInputType || config.embeddingInputType || ''))[0]; },
     async encodeDocuments(entries) {
       const out = [];
-      for (let i = 0; i < entries.length; i += 32) out.push(...await embed(entries.slice(i, i + 32)));
+      for (let i = 0; i < entries.length; i += 32) out.push(...await embed(entries.slice(i, i + 32), config.embeddingDocumentInputType || config.embeddingInputType || ''));
       return out;
     },
   };

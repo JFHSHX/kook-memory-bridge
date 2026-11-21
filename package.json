@@ -1,10 +1,13 @@
 {
   "name": "kook-memory-bridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "KOOK 主库＋AES-256-GCM＋可重建缓存的 Hindsight 风格长期记忆引擎",
   "license": "MIT",
   "main": "src/bridge.js",
   "bin": { "kook-memory": "cli.js", "kook-memory-mcp": "plugin/bin/mcp-stdio.js" },
-  "scripts": { "test": "node test/e2e.js && node test/cli.mjs && cd plugin && npm test" },
+  "scripts": {
+    "test": "node test/e2e.js && node test/cli.mjs && cd plugin && npm test && cd .. && node standalone/scheduler.test.mjs",
+    "test:standalone": "node standalone/scheduler.test.mjs"
+  },
   "engines": { "node": ">=20" }
 }

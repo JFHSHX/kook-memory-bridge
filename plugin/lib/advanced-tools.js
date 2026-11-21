@@ -10,6 +10,7 @@ import {
 import { reconcileObservation, scopeVariants, scopeKey, observationsAreStale } from './consolidation.js';
 import {
   createMentalModel, isMentalModelStale, refreshMentalModel, applyMentalModelDelta,
+  groupMentalModels, splitMentalModelContent, mentalModelDocumentId,
 } from './mental-models.js';
 import { persistNewUnit, persistExistingUnit, deletePersistedUnit } from './retain.js';
 
@@ -149,6 +150,39 @@ export function createAdvancedTools(cfg, dir) {
     },
   };
 
+  async function persistChunkedMentalModel(previous, refreshed) {
+    const chunks = splitMentalModelContent(refreshed.text, 400);
+    const documentId = mentalModelDocumentId(previous.modelId);
+    const previousDocuments = readMemory(dir).filter(e => e.kind === 'document' && e.modelId === previous.modelId && e.documentId === documentId);
+    const created = [];
+    let mainUpdated = false;
+    try {
+      const entry = await persistExistingUnit(cfg, dir, previous, {
+        ...refreshed, documentId, chunkId: 'chunk-0', text: chunks[0],
+        metadata: { ...refreshed.metadata, chunkIndex: 0, chunkCount: chunks.length },
+      });
+      mainUpdated = true;
+      for (let index = 1; index < chunks.length; index++) {
+        const document = await persistNewUnit(cfg, dir, {
+          ...refreshed, kind: 'document', documentId, chunkId: `chunk-${index}`, text: chunks[index],
+          payload: { partOf: previous.modelId, sourceQuery: refreshed.payload?.sourceQuery },
+          metadata: { chunkIndex: index, chunkCount: chunks.length },
+        }, { enrich: false });
+        created.push(document.entry);
+      }
+      for (const old of previousDocuments) await deletePersistedUnit(cfg, dir, old.msgId);
+      return entry;
+    } catch (error) {
+      for (const document of created) {
+        try { await deletePersistedUnit(cfg, dir, document.msgId); } catch {}
+      }
+      if (mainUpdated) {
+        try { await persistExistingUnit(cfg, dir, previous, previous); } catch {}
+      }
+      throw error;
+    }
+  }
+
   const mentalModelTool = {
     name: 'kook_mental_model',
     description: '管理预写心智模型：list/get/create/refresh/delete；scoped stale、watermark、full/delta 刷新，未变块保留，读取不调用 LLM。',
@@ -174,7 +208,7 @@ export function createAdvancedTools(cfg, dir) {
       const action = args.action;
       const bank = args.bank || 'default';
       const rows = readMemory(dir);
-      const models = rows.filter(e => e.bank === bank && e.kind === 'mental_model');
+      const models = groupMentalModels(rows.filter(e => e.bank === bank));
       if (action === 'list') {
         return { ok: true, action, models: models.map(m => ({ modelId: m.modelId, msgId: m.msgId, name: m.payload?.name, stale: isMentalModelStale(m, rows), lastMemorySeenAt: m.payload?.lastMemorySeenAt })) };
       }
@@ -189,7 +223,9 @@ export function createAdvancedTools(cfg, dir) {
       if (!model) throw new Error('找不到 mental model；先 list 或 create');
       if (action === 'get') return { ok: true, action, modelId: model.modelId, msgId: model.msgId, content: model.text, stale: isMentalModelStale(model, rows), model };
       if (action === 'delete') {
-        await deletePersistedUnit(cfg, dir, model.msgId);
+        for (const target of rows.filter(e => e.modelId === model.modelId && ['mental_model', 'document'].includes(e.kind))) {
+          await deletePersistedUnit(cfg, dir, target.msgId);
+        }
         return { ok: true, action, modelId: model.modelId, msgId: model.msgId };
       }
       if (action !== 'refresh') throw new Error(`未知 action: ${action}`);
@@ -213,9 +249,10 @@ export function createAdvancedTools(cfg, dir) {
         content = applyMentalModelDelta(model.text, raw.operations || []);
       }
       const refreshed = refreshMentalModel(model, { content, sourceMemories, now: Date.now(), trigger: args.full ? 'full' : 'delta' });
+
       if (!refreshed.refreshed) throw new Error('LLM 返回空内容，已保留旧模型且水位未推进');
-      const entry = await persistExistingUnit(cfg, dir, model, refreshed.model);
-      return { ok: true, action, modelId: model.modelId, msgId: model.msgId, refreshed: true, content: entry.text, basedOn: entry.payload.basedOn };
+      const entry = await persistChunkedMentalModel(model, refreshed.model);
+      return { ok: true, action, modelId: model.modelId, msgId: model.msgId, refreshed: true, content: refreshed.model.text, basedOn: entry.payload.basedOn };
     },
   };
 

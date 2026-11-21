@@ -23,6 +23,29 @@ assert.equal(noKey.enabled, false);
 await assert.rejects(() => noKey.complete([]), /LLM 未配置/);
 console.log('✓ OpenAI 客户端/JSON mode/未配置可行动错误');
 
+let emptyContentCalls = 0;
+const retryClient = createLLMClient({ llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock-model', llmApiKey: 'test-key' }, {
+  env: {},
+  fetch: async () => {
+    emptyContentCalls++;
+    const content = emptyContentCalls === 1 ? null : 'retry-ok';
+    return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
+  },
+});
+assert.equal(await retryClient.complete([]), 'retry-ok');
+assert.equal(emptyContentCalls, 2);
+console.log('✓ LLM 空 content 有界重试');
+
+const noThinking = createLLMClient({ llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock-model', llmApiKey: 'test-key', llmDisableThinking: true }, {
+  env: {},
+  fetch: async (url, options) => {
+    assert.equal(JSON.parse(options.body).chat_template_kwargs.enable_thinking, false);
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+  },
+});
+assert.equal(await noThinking.complete([]), 'ok');
+console.log('✓ 可配置关闭 chat_template enable_thinking');
+
 const facts = parseExtractedFacts({ facts: [{
   text: '用户上周从 React 迁到 Vue', factType: 'world', occurredStart: '2026-11-01', occurredEnd: '2026-11-08',
   entities: [{ name: 'Vue', type: 'PRODUCT' }], links: [],
@@ -34,7 +57,9 @@ assert.ok(facts[0].tags.includes('#fact'));
 const prompt = buildFactExtractionPrompt({ content: '我上周迁移', mode: 'verbose', mission: '保留技术选择', now: '2026-11-15' });
 assert.ok(prompt[0].content.includes('2–5'));
 assert.ok(prompt[0].content.includes('verbose'));
-console.log('✓ 叙事事实抽取保留时间/实体/文档/factType');
+assert.equal(parseExtractedFacts({ facts: [{ text: '' }, { fact: '有效事实' }] }, { documentId: 'doc-filter' }).length, 1);
+assert.equal(parseExtractedFacts({ facts: [{ text: '' }] }, { documentId: 'doc-empty' }).length, 0);
+console.log('✓ 叙事事实抽取保留时间/实体/文档/factType，空事实项安全跳过');
 
 const obsPrompt = buildObservationReconcilePrompt({ observations: [], facts });
 assert.ok(obsPrompt[0].content.includes('raw facts 永不修改'));

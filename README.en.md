@@ -15,7 +15,7 @@ An encrypted long-term memory engine on KOOK, reimplementing the core memory loo
 - Deterministic lexical-hash fallback, OpenAI-compatible embeddings, TEI/OpenAI-compatible reranking with RRF fallback
 - Append-only and exact-strengthening observations offline; scoped LLM reconciliation with evidence and historical preservation
 - Reflect-lite with layered evidence, citation validation and directives; no invented answer when no LLM is configured
-- Mental models with scoped staleness, watermarks, full/delta refresh, untouched-block preservation and page projection
+- Mental models with scoped staleness, watermarks, full/delta refresh, untouched-block preservation and page projection; at most 5 evidence IDs and 2 short history previews
 - 46 upstream Defense patterns plus KOOK tokens, CJK-safe boundaries, Luhn/UUID filtering and fingerprint-only audit hits
 - DSH plugin/lifecycle integration, CLI and standard MCP stdio with 12 tools
 
@@ -56,9 +56,16 @@ Create `~/.dsh/kook-memory/config.json` (mode 0600; override the directory with 
 Provider options:
 
 - `embeddingProvider=local`: deterministic lexical hashing, **not a neural embedding**
-- `embeddingProvider=openai-compatible`: configure `embeddingBaseURL`, `embeddingModel`, `embeddingApiKeyEnv`
+- `embeddingProvider=openai-compatible`: configure `embeddingBaseURL`, `embeddingModel`, `embeddingApiKeyEnv`; NVIDIA asymmetric models also use `embeddingQueryInputType=query` and `embeddingDocumentInputType=passage`; slow requests can be tuned with `embeddingTimeoutMs`
 - `rerankerProvider=tei|openai-compatible`: configure `rerankerBaseURL`, `rerankerModel`, `rerankerApiKeyEnv`
 - Without an LLM, reflect returns evidence only and consolidation is append-only/exact strengthening
+- Optional multi-channel routing: set `channels` in config.json to route content to separate channels; without it everything goes to the main channel
+
+```json
+"channels": { "mental": "<mental-model channel id>", "exp": "<experience channel id>" }
+```
+
+`mental_model` units and their chunk messages go to `mental`; `experience` memories go to `exp`; everything else goes to the main channel. Rebuild walks every configured channel and merges results (`msgId` is globally unique, so no duplicates).
 
 ## Tools
 
@@ -69,6 +76,19 @@ dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 ```
 
 Restart the engine after code changes. `autoCapture` is opt-in and also requires an LLM.
+
+## Standalone Mental Model scheduler
+
+Runs as an independent Node.js process without the Hindsight API, DSH `schedule_create`, or agent sessions. It provides hourly stale/delta checks, a weekly full-refresh gate, failure pausing and manual-success recovery:
+
+```bash
+node standalone/index.mjs --status
+node standalone/index.mjs --once delta
+node standalone/index.mjs --once full
+node standalone/index.mjs --daemon
+```
+
+Reasoning models can set `llmDisableThinking=true` to send `chat_template_kwargs.enable_thinking=false`. See [standalone/README.md](standalone/README.md).
 
 ## CLI and MCP
 

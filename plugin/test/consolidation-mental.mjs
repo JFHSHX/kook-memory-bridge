@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { scopeVariants, scopeKey, reconcileObservation, consolidateExactDuplicates, observationsAreStale, validateObservationDecision } from '../lib/consolidation.js';
-import { createMentalModel, isMentalModelStale, refreshMentalModel, applyMentalModelDelta, knowledgePageProjection } from '../lib/mental-models.js';
+import { createMentalModel, isMentalModelStale, refreshMentalModel, applyMentalModelDelta, knowledgePageProjection, splitMentalModelContent, groupMentalModels, mentalModelDocumentId } from '../lib/mental-models.js';
 
 assert.deepEqual(scopeVariants(['#b', '#a']), [['#a', '#b']]);
 assert.deepEqual(scopeVariants([], 'shared'), [[]]);
@@ -36,6 +36,11 @@ assert.equal(failed.model.text, model.text);
 assert.equal(failed.model.payload.lastMemorySeenAt, 0, '失败不得推进水位');
 model = refreshMentalModel(model, { content: '<!-- mm:summary -->用户偏好 Vue\n<!-- mm:history -->此前偏好 React\n', sourceMemories: facts, now: 3000 }).model;
 assert.equal(model.payload.lastMemorySeenAt, 2000);
+const manyEvidence = Array.from({ length: 60 }, (_, index) => ({ id: `evidence-${index}`, ts: index }));
+const cappedEvidence = refreshMentalModel(model, { content: '证据上限', sourceMemories: manyEvidence, now: 4000 });
+assert.equal(cappedEvidence.model.payload.basedOn.length, 5);
+assert.ok(cappedEvidence.model.payload.history.length <= 2);
+assert.ok(cappedEvidence.model.payload.history[0].text.length <= 40);
 assert.equal(isMentalModelStale(model, facts), false);
 console.log('✓ mental model watermark/stale/失败保旧文');
 
@@ -44,5 +49,19 @@ const delta = applyMentalModelDelta(before, [{ action: 'replace', id: 'summary',
 assert.ok(delta.includes('Vue 与 Vite'));
 assert.ok(delta.endsWith('<!-- mm:history -->此前偏好 React'), '未触及块必须逐字保留');
 assert.ok(!applyMentalModelDelta(delta, []).includes('undefined'));
+const normalized = applyMentalModelDelta('<!-- mm:interval -->\n6 小时\n', [{ action: 'replace', id: 'mm:interval', text: '8 小时' }]);
+assert.equal((normalized.match(/<!-- mm:/g) || []).length, 1);
+assert.ok(!normalized.includes('mm:mm:'));
+assert.ok(!normalized.includes('6 小时'));
+assert.ok(normalized.includes('8 小时'));
 assert.equal(knowledgePageProjection([model])[0].path, 'default/prefs.md');
 console.log('✓ 块级增量编辑与 knowledge page 投影');
+
+const longModelText = ' Mental Model 正文'.repeat(200);
+const modelChunks = splitMentalModelContent(longModelText, 400);
+assert.ok(modelChunks.length > 1);
+const grouped = groupMentalModels([{ kind: 'mental_model', modelId: 'long', documentId: mentalModelDocumentId('long'), text: modelChunks[0], payload: {} },
+  ...modelChunks.slice(1).map((text, index) => ({ kind: 'document', modelId: 'long', documentId: mentalModelDocumentId('long'), chunkId: `chunk-${index + 1}`, text }))]);
+assert.equal(grouped.length, 1);
+assert.equal(grouped[0].text, longModelText);
+console.log('✓ Mental Model 分块发送与读取重组');

@@ -34,8 +34,20 @@ const provider = createEmbeddingProvider({
 const vector = await provider.encodeQuery('abc');
 assert.deepEqual(vector, [3, 1, 0]);
 assert.equal(calls[0].url, 'https://mock.test/v1/embeddings');
+assert.equal(JSON.parse(calls[0].options.body).input_type, undefined);
 assert.throws(() => createEmbeddingProvider({ embeddingProvider: 'openai', embeddingBaseURL: 'https://x' }, { env: {} }), /缺少 API key/);
 console.log('✓ OpenAI embeddings 请求/维度/缺 key 可行动错误');
+
+const asymmetric = createEmbeddingProvider({
+  embeddingProvider: 'openai-compatible', embeddingBaseURL: 'https://mock.test/v1',
+  embeddingModel: 'nvidia/nemotron-3.5-embed-8b', embeddingApiKey: 'test-only',
+  embeddingQueryInputType: 'query', embeddingDocumentInputType: 'passage',
+}, { fetch: fetchMock, env: {} });
+await asymmetric.encodeQuery('query');
+assert.equal(JSON.parse(calls.at(-1).options.body).input_type, 'query');
+await asymmetric.encodeDocuments([{ text: 'document' }]);
+assert.equal(JSON.parse(calls.at(-1).options.body).input_type, 'passage');
+console.log('✓ NVIDIA 非对称 embeddings：query/passage input_type，默认请求保持兼容');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kook-vector-cache-'));
 const file = path.join(dir, 'vectors.json');

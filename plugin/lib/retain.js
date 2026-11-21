@@ -1,6 +1,6 @@
 import path from 'node:path';
 import {
-  requireChannel, readState, resolveKey, formatUnitMessage, kook,
+  requireChannel, readState, resolveKey, formatUnitMessage, kook, channelFor,
   readMemory, appendMemory, writeMemory, defenseApply, dateOf,
 } from './core.js';
 import { normalizeUnit } from './units.js';
@@ -42,7 +42,7 @@ export async function enrichUnitLinks(cfg, dir, input) {
 
 export async function persistNewUnit(cfg, dir, input, { enrich = true } = {}) {
   const unit = enrich ? await enrichUnitLinks(cfg, dir, input) : normalizeUnit(input);
-  const channelId = requireChannel(cfg, readState(dir));
+  const channelId = channelFor(cfg, unit) || requireChannel(cfg, readState(dir));
   const sent = await kook.send(cfg, channelId, formatUnitMessage(unit, resolveKey(cfg)));
   const ts = Number(sent.msg_timestamp) || Date.now();
   const entry = {
