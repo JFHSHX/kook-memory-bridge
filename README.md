@@ -74,7 +74,7 @@ node cli.js status
 dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 ```
 
-代码变更后在 App「引擎」页重启。`autoCapture` 默认关闭，开启且配置 LLM 后才会在 turn-stopping 自动抽取。
+代码变更后在 App「引擎」页重启。`autoCapture` 默认关闭，开启且配置 LLM 后才会在 turn-stopping 自动抽取；`autoCaptureFactType=experience` 时自动写入 `exp` 频道，未设置则写入主频道。
 
 ## v0.4.0 第二阶段能力
 

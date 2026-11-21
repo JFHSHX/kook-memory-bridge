@@ -31,7 +31,7 @@ const ctx = {
   logger: { info() {}, warn() {} },
 };
 try {
-  apply(ctx, { dataDir: dir, autoCapture: true, botToken: 'mock', channelId: 'channel-1', key, llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock', llmApiKeyEnv: 'TEST_KEY' });
+  apply(ctx, { dataDir: dir, autoCapture: true, autoCaptureFactType: 'experience', channels: { exp: 'exp-channel' }, botToken: 'mock', channelId: 'channel-1', key, llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock', llmApiKeyEnv: 'TEST_KEY' });
   const agent = { session: { header: { id: 's1' }, snapshotEvents: () => [] } };
   await handlers.get('agent/session-start')({ agent });
   await handlers.get('agent/pre-step')({ agent }, async () => ({ kind: 'enter', messages: [{ role: 'user', content: '用户喜欢 Vue' }] }));
@@ -39,6 +39,7 @@ try {
   const rows = readMemory(dir);
   assert.ok(rows.some(row => row.tags.includes('#auto-capture') && row.text.includes('用户喜欢 Vue')));
   assert.equal(created.length, 1);
+  assert.equal(created[0].target_id, 'exp-channel');
   console.log('✓ autoCapture 在 turn-stopping 自动抽取并写入记忆');
 } finally {
   globalThis.fetch = realFetch;

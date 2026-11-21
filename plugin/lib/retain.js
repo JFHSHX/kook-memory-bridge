@@ -122,7 +122,7 @@ export async function retainDocument(cfg, dir, args = {}) {
           mission: [bankConfig.retainMission, args.customInstructions].filter(Boolean).join('\n'),
           context: args.context || '', now: new Date(ts).toISOString(),
           bank, documentId: prepared.documentId, chunkId: chunk.id,
-          tags: args.tags, context: args.context || '', mentionedAt,
+          tags: args.tags, context: args.context || '', mentionedAt, factType: args.factType,
           metadata: { ...(args.metadata || {}), mode: actualMode, contentHash: prepared.contentHash },
         });
         if (!facts.length) {

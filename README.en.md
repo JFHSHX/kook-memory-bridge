@@ -75,7 +75,7 @@ Provider options:
 dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 ```
 
-Restart the engine after code changes. `autoCapture` is opt-in and also requires an LLM.
+Restart the engine after code changes. `autoCapture` is opt-in and also requires an LLM. Set `autoCaptureFactType=experience` to route automatic captures to the `exp` channel; otherwise they go to the main channel.
 
 ## v0.4.0 second-stage capabilities
 

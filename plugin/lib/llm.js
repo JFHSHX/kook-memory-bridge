@@ -102,12 +102,12 @@ export function buildFactExtractionPrompt({ content, mode = 'concise', mission =
   ];
 }
 
-export function parseExtractedFacts(raw, { bank = 'default', documentId, chunkId = null, tags = ['#fact'], context = '', mentionedAt = new Date().toISOString(), metadata = {} } = {}) {
+export function parseExtractedFacts(raw, { bank = 'default', documentId, chunkId = null, tags = ['#fact'], context = '', mentionedAt = new Date().toISOString(), metadata = {}, factType: forcedFactType = null } = {}) {
   const list = Array.isArray(raw) ? raw : raw?.facts;
   if (!Array.isArray(list)) throw new Error('事实抽取结果缺少 facts 数组');
   if (list.length > 20) throw new Error('单次抽取事实超过 20 条，已拒绝');
   return list.filter(fact => String(fact?.text || fact?.fact || '').trim()).map((fact, index) => {
-    const factType = fact.factType || fact.fact_type || 'world';
+    const factType = forcedFactType || fact.factType || fact.fact_type || 'world';
     const autoTag = factType === 'experience' ? '#exp' : factType === 'observation' ? '#observation' : factType === 'opinion' ? '#opinion' : '#fact';
     return normalizeUnit({
       bank, documentId, chunkId, context,

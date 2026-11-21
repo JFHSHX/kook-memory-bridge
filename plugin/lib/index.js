@@ -476,7 +476,7 @@ export function apply(ctx, config = {}) {
       if (!prompt || prompt === session.capturedPrompt || /<(?:kook|tg)_memory>/.test(prompt)) return;
       session.capturedPrompt = prompt;
       const result = await retainDocument(loadConfig(config, dir), dir, {
-        text: prompt, mode: 'concise', bank: config.bank || 'default',
+        text: prompt, mode: 'concise', bank: config.bank || 'default', factType: config.autoCaptureFactType || 'world',
         tags: ['#auto-capture'], metadata: { harness: 'dsh' },
       });
       diag(dir, 'auto_capture', { sid, count: result.count, documentId: result.documentId });

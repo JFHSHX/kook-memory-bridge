@@ -34,6 +34,7 @@ node standalone/http.mjs
 - 中转密钥环境变量名按用户当前配置为 `a`；不要在文档、日志、Release 或记忆中写入实际值。
 - 可选频道映射：`channels.mental` 与 `channels.exp`；不配时保持单频道兼容。
 - `llmDisableThinking=true` 用于推理模型；慢速 embedding 可调整 `embeddingTimeoutMs`。
+- `autoCapture=true` 开启 turn-stopping 自动沉淀；`autoCaptureFactType=experience` 让自动写入进入 `exp` 频道，默认 world 进主频道。
 
 ## 未完成边界
 
