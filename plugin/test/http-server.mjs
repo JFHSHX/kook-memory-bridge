@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import { createHttpServer } from '../lib/http-server.js';
+
+const tools = [{ name: 'kook_status', description: 'status', parameters: {}, execute: async () => ({ ok: true, entries: 1 }) }, { name: 'kook_retain', description: 'retain', parameters: {}, execute: async args => ({ ok: true, text: args.text }) }];
+const http = createHttpServer({ tools, authToken: 'secret', port: 0 });
+const address = await http.start({ port: 0 });
+const url = path => fetch(address.url + path, { headers: { Authorization: 'Bearer secret' } });
+const health = await (await url('/healthz')).json();
+assert.equal(health.tools, 2);
+const listed = await (await url('/v1/tools')).json();
+assert.equal(listed.tools.length, 2);
+const retained = await (await url('/v1/retain')).json();
+assert.equal(retained.text, undefined);
+const result = await (await fetch(address.url + '/v1/retain', { method: 'POST', headers: { Authorization: 'Bearer secret', 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'hello' }) })).json();
+assert.equal(result.text, 'hello');
+const denied = await fetch(address.url + '/v1/tools');
+assert.equal(denied.status, 401);
+const missing = await (await url('/v1/nope')).status;
+assert.equal(missing, 405);
+await http.stop();
+console.log('✓ HTTP 健康检查、工具发现、通用执行、鉴权与 404');

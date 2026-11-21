@@ -9,6 +9,8 @@ import { createBankTool } from './bank-tool.js';
 import { searchKookMemory } from './search.js';
 import { retainDocument } from './retain.js';
 import { createAdvancedTools } from './advanced-tools.js';
+import { createPageTools } from './pages.js';
+import { createHttpTools } from './http-server.js';
 import { searchMemories } from './retrieval.js';
 import { createLLMClient } from './llm.js';
 
@@ -348,10 +350,17 @@ function buildTools(config = {}) {
     },
   };
 
-  return [
+  const advancedTools = createAdvancedTools(cfg, dir);
+  const refreshModel = async args => advancedTools.find(def => def.name === 'kook_mental_model').execute(args);
+  const tools = [
     status, retain, recall, rebuild, createBankTool(cfg, dir), forget, edit, pin,
-    ...createAdvancedTools(cfg, dir),
+    ...advancedTools,
+    ...createPageTools({ dir, refreshModel, intervalMs: cfg.pagesRefreshMs || 60000, autoRefresh: cfg.pagesAutoRefresh !== false }),
   ];
+  let registry = [];
+  const httpTools = createHttpTools({ cfg, dir, tools: () => registry });
+  registry = [...tools, ...httpTools];
+  return registry;
 }
 
 function promptTextOf(messages) {

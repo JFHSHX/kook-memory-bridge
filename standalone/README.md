@@ -4,8 +4,8 @@
 
 ## 能力
 
-- 每小时 UTC 整点执行 delta：只有 stale 才调用 LLM。
-- 每周日 03:30 UTC 执行 full：只有上次 full 后发生过 delta 才重建。
+- 每小时 UTC 整点执行 delta：只有 stale 才调用 LLM；也支持每模型五字段 cron 与动态 next-run。
+- 每周日 03:30 UTC 执行 full：只有上次 full 后发生过 delta 才重建；支持 `full_refresh_cron`、`refresh_after_consolidation`、`min_refresh_interval_seconds` 和 dry-run。
 - 首次或缺少 `<!-- mm:` 基线时先 full。
 - 每个模型最多重试 3 次；失败后暂停，检测到外部手动刷新成功后恢复。
 - 独立记录 lastFullCompletedAt，原子写状态文件。
@@ -33,9 +33,14 @@ node standalone/index.mjs --once delta
 
 # 立即执行一次全量门控检查
 node standalone/index.mjs --once full
+node standalone/index.mjs --once dry-run
 
 # 常驻运行：启动时先检查 delta，再按 UTC 计划调度
 node standalone/index.mjs --daemon
+
+# 独立 HTTP API（与 kook_http 共用注册表）
+node standalone/http.mjs
+# 可配 KOOK_HTTP_TOKEN、KOOK_HTTP_HOST、KOOK_HTTP_PORT
 ```
 
 状态与日志默认位于 KOOK 数据目录：

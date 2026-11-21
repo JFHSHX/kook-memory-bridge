@@ -87,9 +87,9 @@ const ctx = makeCtx(def => { defs[def.name] = def; });
 apply(ctx, { dataDir, botToken: 'mock-token', channelId: 'channel-1', key });
 assert.deepEqual(Object.keys(defs), [
   'kook_status', 'kook_retain', 'kook_recall', 'kook_rebuild', 'kook_bank', 'kook_forget', 'kook_edit', 'kook_pin',
-  'kook_reflect', 'kook_consolidate', 'kook_mental_model', 'kook_directive',
+  'kook_reflect', 'kook_consolidate', 'kook_mental_model', 'kook_directive', 'kook_pages', 'kook_http',
 ]);
-console.log('✓ 12 个工具注册');
+console.log('✓ 14 个工具注册');
 
 const status = await defs.kook_status.execute({});
 assert.equal(status.ok, true);

@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { KnowledgePages } from '../lib/pages.js';
+import { normalizeUnit } from '../lib/units.js';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kook-pages-'));
+const model = { ...normalizeUnit({ kind: 'mental_model', modelId: 'prefs', bank: 'default', sourceQuery: '用户偏好', text: '（尚未生成）', tags: ['#mental-model'] }), id: 'mm1', msgId: 'mm1', payload: { name: '偏好画像', sourceQuery: '用户偏好', lastRefreshedAt: null, lastMemorySeenAt: 0 } };
+fs.writeFileSync(path.join(dir, 'index.jsonl'), JSON.stringify(model) + '\n');
+let refreshes = 0;
+const pages = new KnowledgePages({ dir, autoRefresh: true, intervalMs: 10, refreshModel: async () => { refreshes++; model.text = '偏好 Vue'; model.payload.lastRefreshedAt = new Date().toISOString(); model.payload.lastMemorySeenAt = 1; fs.writeFileSync(path.join(dir, 'index.jsonl'), JSON.stringify(model) + '\n'); } });
+await pages.refresh('default');
+assert.equal(refreshes, 1);
+const content = await pages.read('default', 'prefs');
+assert.ok(content.includes('偏好 Vue'));
+assert.ok(content.includes('sourceQuery'));
+await assert.rejects(() => pages.read('default', '../secret'), /页面 ID/);
+console.log('✓ 页面由 Mental Model 原子生成并可读取，路径穿越被拒绝');
+const running = await pages.start();
+assert.equal(running.running, true);
+assert.equal(pages.stop().running, false);
+fs.rmSync(dir, { recursive: true, force: true });
+console.log('✓ 后台刷新可启动与停止');

@@ -14,10 +14,10 @@ An encrypted long-term memory engine on KOOK, reimplementing the core memory loo
 - TEMPR-style retrieval: BM25, optional embeddings, temporal windows/buckets, semantic-seed link expansion, RRF(k=60), multiplicative boosts and token budgets
 - Deterministic lexical-hash fallback, OpenAI-compatible embeddings, TEI/OpenAI-compatible reranking with RRF fallback
 - Append-only and exact-strengthening observations offline; scoped LLM reconciliation with evidence and historical preservation
-- Reflect-lite with layered evidence, citation validation and directives; no invented answer when no LLM is configured
-- Mental models with scoped staleness, watermarks, full/delta refresh, untouched-block preservation and page projection; at most 5 evidence IDs and 2 short history previews
+- Reflect-agent with bounded multi-round retrieval, decision-model evaluation, real-ID validation and evidence-only fallback when no LLM is configured
+- Mental models with scoped staleness, watermarks, full/delta refresh, untouched-block preservation and page projection; at most 5 evidence IDs and 2 short history previews, chunked storage, per-model cron, min refresh intervals, after-consolidation and dry-run
 - 46 upstream Defense patterns plus KOOK tokens, CJK-safe boundaries, Luhn/UUID filtering and fingerprint-only audit hits
-- DSH plugin/lifecycle integration, CLI and standard MCP stdio with 12 tools
+- DSH plugin/lifecycle integration, CLI and standard MCP stdio with 14 tools, plus an optionally Bearer-authenticated localhost HTTP API
 
 ## Wire format
 
@@ -76,6 +76,14 @@ dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 ```
 
 Restart the engine after code changes. `autoCapture` is opt-in and also requires an LLM.
+
+## v0.4.0 second-stage capabilities
+
+- `plugin/lib/reflect-agent.js`: bounded multi-round retrieval with a decision model, real-ID validation, answer_found/done/next_query decisions, and full tool traces.
+- `plugin/lib/pages.js` + `kook_pages`: atomic Markdown generation from mental models, safe reads, and stale-driven background refresh.
+- `plugin/lib/consolidation-state.js`: persistent state machine, cross-process locking, failure recovery, and exact/near-duplicate grouping.
+- `plugin/lib/http-server.js` + `standalone/http.mjs`: tool discovery, generic execution, memory/model/page routes, and optional Bearer authentication.
+- `standalone/cron.mjs` and the full scheduler: per-model `refresh_cron`, `full_refresh_cron`, `refresh_after_consolidation`, minimum refresh intervals, dry-run, and dynamic next-run calculation.
 
 ## Standalone Mental Model scheduler
 

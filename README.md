@@ -12,10 +12,10 @@ KOOK 加密长期记忆引擎，复刻 [vectorize-io/hindsight](https://github.c
 - **retain**：`concise / verbose / custom / verbatim / chunks`；无 LLM 时明确降级 chunks，长文档与实体/时间/语义链接
 - **TEMPR**：BM25 关键词、可选 embedding 语义、时间窗与时间桶、语义种子的 link expansion、RRF(k=60)、三类乘法 boost、token 预算
 - **providers**：确定性 lexical-hash 回退、OpenAI-compatible embeddings、TEI/OpenAI-compatible rerank；故障回退 RRF
-- **观察与反思**：append-only/精确强化、LLM create/update/delete/skip、scope 隔离、证据与历史保留；reflect-lite 分层证据、引用 id 校验、directives
-- **mental models**：scoped stale、watermark、full/delta、未变块保留、最多 5 个证据 ID、2 条历史预览、knowledge-page 投影
+- **观察与反思**：append-only/精确强化、LLM create/update/delete/skip、scope 隔离、证据与历史保留；reflect-agent 多轮检索、真实 id 校验、decision model 与 evidence-only 降级
+- **mental models**：scoped stale、watermark、full/delta、未变块保留、最多 5 个证据 ID、2 条历史预览、分块存储、独立 cron、min interval、after-consolidation 与 dry-run
 - **Defense**：上游当前 46 类＋KOOK token；CJK 边界、Luhn/UUID、指纹审计，可选 prompt-injection 检测
-- **接入**：DSH 插件与生命周期注入、CLI、标准 MCP stdio（12 工具）
+- **接入**：DSH 插件与生命周期注入、CLI、标准 MCP stdio（14 工具）、可选 Bearer 鉴权的 localhost HTTP API
 
 ## 消息格式
 
@@ -68,13 +68,21 @@ node cli.js status
 
 ## DSH 工具
 
-`kook_status`、`kook_retain`、`kook_recall`、`kook_rebuild`、`kook_bank`、`kook_forget`、`kook_edit`、`kook_pin`、`kook_reflect`、`kook_consolidate`、`kook_mental_model`、`kook_directive`。
+`kook_status`、`kook_retain`、`kook_recall`、`kook_rebuild`、`kook_bank`、`kook_forget`、`kook_edit`、`kook_pin`、`kook_reflect`、`kook_consolidate`、`kook_mental_model`、`kook_directive`、`kook_pages`、`kook_http`。
 
 ```bash
 dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 ```
 
 代码变更后在 App「引擎」页重启。`autoCapture` 默认关闭，开启且配置 LLM 后才会在 turn-stopping 自动抽取。
+
+## v0.4.0 第二阶段能力
+
+- `plugin/lib/reflect-agent.js`：最多 10 轮检索/扩展，decision model 只接受真实检索 id，支持 answer_found/done/next_query 与完整 toolTrace。
+- `plugin/lib/pages.js` + `kook_pages`：Mental Model 生成 Markdown，原子写盘、安全路径读取、stale 后台刷新。
+- `plugin/lib/consolidation-state.js`：preparing/consolidating/committing/committed/failed 状态机、跨进程锁、失败恢复、精确与近似去重。
+- `plugin/lib/http-server.js` + `standalone/http.mjs`：工具发现、通用执行、记忆/模型/页面路由与可选 Bearer 鉴权。
+- `standalone/cron.mjs` + 完整 scheduler：每模型 `refresh_cron`、`full_refresh_cron`、`refresh_after_consolidation`、`min_refresh_interval_seconds`、dry-run 与动态 next-run。
 
 ## 独立 Mental Model 调度器
 

@@ -60,13 +60,13 @@ function releaseLock() { try { fs.rmSync(lockFile, { force: true }); } catch {} 
 async function main() {
   if (command === '--status') {
     const listing = await tools.list();
-    console.log(JSON.stringify({ dataDir, stateFile, nextDeltaAt: nextDeltaAt().toISOString(), nextFullAt: nextFullAt().toISOString(), models: listing.models || [] }, null, 2));
+    console.log(JSON.stringify({ dataDir, stateFile, nextDeltaAt: (await scheduler.nextRunAt('delta')).toISOString(), nextFullAt: (await scheduler.nextRunAt('full')).toISOString(), models: listing.models || [] }, null, 2));
     return;
   }
   await ensureDefaultModel();
   if (command === '--once') {
-    if (!['delta', 'full'].includes(mode)) throw new Error('用法：--once delta|full');
-    const result = await scheduler.run(mode);
+    if (!['delta', 'full', 'dry-run'].includes(mode)) throw new Error('用法：--once delta|full|dry-run');
+    const result = await scheduler.run(mode, { afterConsolidation: args.includes('--after-consolidation') });
     console.log(JSON.stringify(result, null, 2));
     if (result.counts.failed) process.exitCode = 1;
     return;
@@ -79,7 +79,7 @@ async function main() {
       timers.delete(timer);
       try { log('info', { event: 'scheduled-run', result: await scheduler.run(mode) }); }
       catch (error) { log('error', { event: 'scheduled-run-failed', error: error.message }); }
-      later(mode, mode === 'delta' ? nextDeltaAt() : nextFullAt());
+      later(mode, await scheduler.nextRunAt(mode));
     }, Math.max(1000, at.getTime() - Date.now()));
     timers.add(timer);
   };

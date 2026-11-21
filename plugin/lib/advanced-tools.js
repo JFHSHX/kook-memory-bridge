@@ -13,6 +13,8 @@ import {
   groupMentalModels, splitMentalModelContent, mentalModelDocumentId,
 } from './mental-models.js';
 import { persistNewUnit, persistExistingUnit, deletePersistedUnit } from './retain.js';
+import { runReflectAgent } from './reflect-agent.js';
+import { ConsolidationRunner } from './consolidation-state.js';
 
 const output = render => ({ schema: { type: 'object' }, render });
 const text = value => [{ type: 'text', text: value }];
@@ -64,14 +66,16 @@ export function createAdvancedTools(cfg, dir) {
           note: '未配置 LLM：已执行分层检索，未伪造生成式反思',
         };
       }
-      const result = await reflectWithLLM(client, {
-        question: args.question, mentalModels, observations, memories,
-        directives, bankConfig, toolTrace, maxTokens: args.maxTokens || 3000,
+      const result = await runReflectAgent({
+        cfg, dir, question: args.question, bank, limit, maxTokens: args.maxTokens || 6000,
+        tags: args.tags || [], client, maxIterations: args.maxIterations || cfg.reflectMaxIterations || 10,
+        decisionModel: args.decisionModel ?? cfg.decisionModel ?? true,
       });
       return { ok: true, mode: 'reflect', ...result, directivesApplied: directives.map(idOf) };
     },
   };
 
+  const consolidationRunner = new ConsolidationRunner(dir);
   const consolidateTool = {
     name: 'kook_consolidate',
     description: '整合 observations：scope 隔离、证据并集、重复强化、纠正保留历史；无 LLM 时 append-only＋精确去重，raw facts 永不改。',
@@ -91,6 +95,7 @@ export function createAdvancedTools(cfg, dir) {
       await ensureCache();
       const bank = args.bank || 'default';
       const rows = readMemory(dir);
+      return consolidationRunner.run(bank, async () => {
       const wanted = args.factIds ? new Set(args.factIds.map(String)) : null;
       let facts = rows.filter(e => e.bank === bank && e.kind === 'memory' && (!wanted || wanted.has(idOf(e))));
       const covered = new Set(rows.filter(e => e.bank === bank && e.kind === 'observation').flatMap(o => o.sourceMemoryIds || []));
@@ -147,6 +152,7 @@ export function createAdvancedTools(cfg, dir) {
         }
       }
       return { ok: true, mode: 'llm-reconcile', ...counts, note: '' };
+      }, { facts: rows.filter(e => e.bank === bank && e.kind === 'memory') });
     },
   };
 

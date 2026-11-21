@@ -1,7 +1,7 @@
 {
   "name": "kook-memory-bridge",
-  "version": "0.3.0",
-  "description": "Hindsight-style memory on KOOK: 12 tools for retain/recall/rebuild/bank/edit/forget/pin/reflect/consolidate/mental-model/directive; TEMPR+RRF, optional embeddings/rerank, kmb2, AES-256-GCM, rebuildable cache, DSH lifecycle and MCP stdio",
+  "version": "0.4.0",
+  "description": "Hindsight-style memory on KOOK: 14 tools for retain/recall/rebuild/bank/edit/forget/pin/reflect/consolidate/mental-model/directive/pages/http; TEMPR+RRF, optional embeddings/rerank, kmb2, AES-256-GCM, rebuildable cache, DSH lifecycle, MCP stdio and HTTP",
   "type": "module",
   "main": "lib/index.js",
   "bin": { "kook-memory-mcp": "bin/mcp-stdio.js" },
@@ -9,7 +9,7 @@
   "license": "MIT",
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node test/units.mjs && node test/banks-documents.mjs && node test/defense.mjs && node test/consolidation-mental.mjs && node test/retrieval.mjs && node test/embeddings.mjs && node test/search.mjs && node test/llm.mjs && node test/advanced.mjs && node test/mcp.mjs && node test/channels.mjs && node test/offline.mjs"
+    "test": "node test/units.mjs && node test/banks-documents.mjs && node test/defense.mjs && node test/consolidation-mental.mjs && node test/retrieval.mjs && node test/embeddings.mjs && node test/search.mjs && node test/llm.mjs && node test/advanced.mjs && node test/reflect-agent.mjs && node test/pages.mjs && node test/consolidation-state.mjs && node test/http-server.mjs && node test/embedding-fallback.mjs && node test/mcp.mjs && node test/channels.mjs && node test/offline.mjs"
   },
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 }

@@ -5,7 +5,7 @@
 > 优先级：P0=先做/修正底座，P1=核心体验，P2=外部模型接入后增强，P3=不纳入零依赖近期范围。
 > 零依赖仅指 Node 18 标准库；LLM/embedding/reranker 可走 HTTP，但不能把“远程模型存在”写成“本地模型已复刻”。KOOK 仍是密文事实源，本地索引是缓存。
 
-## 〇、当前实施状态（2026-11-15，第二轮后）
+## 〇、当前实施状态（2026-11-21，第三阶段后）
 
 | 能力 | 状态与位置 |
 |---|---|
@@ -16,12 +16,12 @@
 | TEMPR / RRF / boost / budget | **已接 `kook_recall`**：`retrieval.js`、`search.js`；BM25＋可选语义＋时间＋link expansion，公式数值测试通过 |
 | embedding / rerank | **已接**：local lexical-hash、OpenAI embeddings、TEI/OpenAI rerank；向量缓存与故障 RRF 回退通过 |
 | observations | **已接 `kook_consolidate`**：无 LLM append-only＋精确强化；LLM scope 对账、证据并集、历史保留、raw facts 不改 |
-| reflect | **reflect-lite 已接 `kook_reflect`**：分层检索、disposition/directives、真实 id 引用校验；无 LLM 返回证据。**不是完整 agent loop** |
-| mental models | **已接 `kook_mental_model`**：scoped stale、watermark、full/delta、失败保旧文、未变块保留；定时调度未做 |
+| reflect | **完整 reflect-agent 已接 `kook_reflect`**：`reflect-agent.js` 多轮检索、真实 id 校验、decision model、toolTrace；无 LLM 返回证据，不伪造回答 |
+| mental models | **已接 `kook_mental_model`**：scoped stale、watermark、full/delta、分块存储、失败保旧文、独立 cron、min interval、after-consolidation、dry-run 与动态 next-run |
 | Defense | **已统一到 retain/edit**：46＋KOOK、Luhn/UUID/指纹；可选本地 prompt-injection heuristic，不冒充 cloud |
-| DSH / CLI / MCP | **12 工具＋生命周期注入＋统一 CLI＋MCP stdio**；HTTP 与全 39 工具未做 |
-| pages | **仅有 knowledge-page 投影纯函数**；无 fs mount/后台页面服务 |
-| 真实验证 | 全部离线测试＋真实 KOOK 主库/kmb2/bank/observation/directive/mental/local-vector；生成式 LLM 为 mock，本机未配 key |
+| DSH / CLI / MCP / HTTP | **14 工具＋生命周期注入＋统一 CLI＋MCP stdio＋localhost HTTP**；完整上游 39 工具协议未声称对齐 |
+| pages | **文件后端已接 `kook_pages`**：Mental Model 生成 Markdown、原子写盘、安全路径读取、stale 后台刷新；不是上游完整 fs mount/admin UI |
+| 真实验证 | 全部离线测试＋真实 KOOK 主库/kmb2/bank/observation/directive/mental/local-vector；真实 OpenAI-compatible LLM、NVIDIA 8B embedding、HTTP 14 工具与三频道重建均通过 |
 
 > 以下第一至三节保留第二轮前的差距基线和精确上游公式。“当前 KOOK 状态”列描述的是当时起点；最新完成度以本节和 [verification.md](verification.md) 为准。
 

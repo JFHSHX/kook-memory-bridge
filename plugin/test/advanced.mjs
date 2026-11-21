@@ -22,6 +22,8 @@ globalThis.fetch = async (input, options = {}) => {
       content = JSON.stringify({ facts: [{ text: '用户现在偏好 Vue', factType: 'world', occurredStart: '2026-11-15', entities: [{ name: 'Vue', type: 'PRODUCT' }], links: [] }] });
     } else if (system.includes('你在整合长期观察')) {
       content = JSON.stringify({ decisions: [{ action: 'update', effect: 'changes', observationId, text: '用户此前偏好 React，现在偏好 Vue', sourceMemoryIds: [latestFactId], scope: ['#pref'] }] });
+    } else if (system.includes('decision model')) {
+      content = JSON.stringify({ answer_found: true, done: true, reason: '证据足够', next_query: '', include_ids: [observationId] });
     } else if (body.messages[1].content.includes('search_mental_models')) {
       content = `你当前偏好 Vue [${observationId}]`;
     } else {

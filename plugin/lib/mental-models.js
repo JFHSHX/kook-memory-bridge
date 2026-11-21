@@ -24,7 +24,8 @@ export function createMentalModel({ bank = 'default', modelId, name, sourceQuery
     kind: 'mental_model', bank, modelId, question: sourceQuery, factType: 'world', tags,
     text: '（尚未生成）', scope: scope === undefined ? tags : scope,
     payload: {
-      name: name || modelId, sourceQuery, trigger, basedOn: [],
+      name: name || modelId, sourceQuery, trigger: typeof trigger === 'object' ? (trigger.mode || 'delta') : trigger, basedOn: [],
+      schedule: typeof trigger === 'object' ? { ...trigger } : {},
       lastRefreshedAt: null, lastMemorySeenAt: 0, history: [],
     },
     mentionedAt: new Date(now).toISOString(),
@@ -47,7 +48,7 @@ export function refreshMentalModel(model, { content, sourceMemories = [], basedO
   const next = normalizeUnit({
     ...model, text: String(content), mentionedAt: new Date(now).toISOString(),
     payload: {
-      ...model.payload, basedOn: ids, trigger,
+      ...model.payload, basedOn: ids, lastRefreshMode: trigger,
       lastRefreshedAt: new Date(now).toISOString(), lastMemorySeenAt: latest,
       history: [...(model.payload?.history || []), { text: String(model.text).slice(0, 40), at: model.payload?.lastRefreshedAt }].slice(-2),
     },

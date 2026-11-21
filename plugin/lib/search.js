@@ -13,12 +13,19 @@ export async function searchKookMemory(cfg, dir, args = {}) {
   const providerName = cfg.embeddingProvider || 'none';
   let queryEmbedding;
   let embedding = 'disabled';
+  let embeddingError = '';
   if (providerName !== 'none' && String(args.query || '').trim()) {
-    const provider = createEmbeddingProvider(cfg);
-    const vectors = await embedWithCache(entries, provider, path.join(dir, 'vectors.json'));
-    entries = entries.map((entry, i) => ({ ...entry, embedding: vectors[i] }));
-    queryEmbedding = await provider.encodeQuery(args.query);
-    embedding = provider.kind;
+    try {
+      const provider = createEmbeddingProvider(cfg);
+      const vectors = await embedWithCache(entries, provider, path.join(dir, 'vectors.json'));
+      entries = entries.map((entry, i) => ({ ...entry, embedding: vectors[i] }));
+      queryEmbedding = await provider.encodeQuery(args.query);
+      embedding = provider.kind;
+    } catch (error) {
+      embeddingError = `embedding 失败，已回退关键词/RRF：${error?.message || error}`;
+      embedding = 'disabled';
+      queryEmbedding = undefined;
+    }
   }
   const base = await searchMemories(entries, args.query || '', {
     bank, factTypes: args.factTypes, kinds: args.kinds, now: args.now,
@@ -41,5 +48,5 @@ export async function searchKookMemory(cfg, dir, args = {}) {
   } else {
     results = packBudget(base.results, { maxTokens }).slice(0, limit);
   }
-  return { ...base, results, embedding, reranker: rerankerName, note };
+  return { ...base, results, embedding, reranker: rerankerName, note: [embeddingError, note].filter(Boolean).join('；') };
 }
