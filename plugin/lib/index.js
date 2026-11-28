@@ -474,8 +474,10 @@ export function apply(ctx, config = {}) {
       const client = createLLMClient(effectiveConfig);
       if (!client.enabled) return;
       const sid = input.agent?.session?.header?.id || input.sessionId || input.session?.id || (sessions.size === 1 ? sessions.keys().next().value : '?');
-      const session = sessions.get(sid);
-      const prompt = session?.lastPrompt;
+      const session = sessions.get(sid) || { injected: '' };
+      sessions.set(sid, session);
+      const snapshotPrompt = promptTextOf(input.agent?.session?.snapshotEvents?.() || input.events || []);
+      const prompt = session.lastPrompt || snapshotPrompt;
       if (!prompt || prompt === session.capturedPrompt || /<(?:kook|tg)_memory>/.test(prompt)) return;
       session.capturedPrompt = prompt;
       const result = await retainDocument(effectiveConfig, dir, {

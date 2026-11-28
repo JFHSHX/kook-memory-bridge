@@ -33,9 +33,8 @@ const ctx = {
 };
 try {
   apply(ctx, { dataDir: dir });
-  const agent = { session: { header: { id: 's1' }, snapshotEvents: () => [] } };
+  const agent = { session: { header: { id: 's1' }, snapshotEvents: () => [{ role: 'user', content: '用户喜欢 Vue' }] } };
   await handlers.get('agent/session-start')({ agent });
-  await handlers.get('agent/pre-step')({ agent }, async () => ({ kind: 'enter', messages: [{ role: 'user', content: '用户喜欢 Vue' }] }));
   await handlers.get('agent/turn-stopping')({ agent });
   const rows = readMemory(dir);
   assert.ok(rows.some(row => row.tags.includes('#auto-capture') && row.text.includes('用户喜欢 Vue')));
