@@ -9,6 +9,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kook-auto-capture-'));
 const key = '33'.repeat(32);
 process.env.TEST_KEY = 'test-only';
 const created = [];
+const llmBodies = [];
 fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ autoCapture: true, autoCaptureFactType: 'experience', channels: { exp: 'exp-channel' }, botToken: 'mock', channelId: 'channel-1', key, llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock', llmApiKeyEnv: 'TEST_KEY' }));
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, options = {}) => {
@@ -19,7 +20,10 @@ globalThis.fetch = async (input, options = {}) => {
     created.push(body);
     return { ok: true, json: async () => ({ code: 0, data: { msg_id: 'capture-1', msg_timestamp: Date.now() } }) };
   }
-  if (url.href === 'https://mock.llm/v1/chat/completions') return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ facts: [{ text: '用户喜欢 Vue', factType: 'world' }] }) } }] }) };
+  if (url.href === 'https://mock.llm/v1/chat/completions') {
+    llmBodies.push(JSON.parse(options.body));
+    return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ facts: [{ text: '用户喜欢 Vue', factType: 'world' }] }) } }] }) };
+  }
   throw new Error('unexpected ' + url.href);
 };
 const handlers = new Map();
@@ -33,13 +37,14 @@ const ctx = {
 };
 try {
   apply(ctx, { dataDir: dir });
-  const agent = { session: { header: { id: 's1' }, snapshotEvents: () => [{ role: 'user', content: '用户喜欢 Vue' }] } };
+  const agent = { session: { header: { id: 's1' }, snapshotEvents: () => [{ role: 'user', content: '用户喜欢 Vue' }, { role: 'assistant', content: '助手确认：KOOK 自动抓取验证通过' }] } };
   await handlers.get('agent/session-start')({ agent });
   await handlers.get('agent/turn-stopping')({ agent });
   const rows = readMemory(dir);
   assert.ok(rows.some(row => row.tags.includes('#auto-capture') && row.text.includes('用户喜欢 Vue')));
   assert.equal(created.length, 1);
   assert.equal(created[0].target_id, 'exp-channel');
+  assert.ok(llmBodies[0].messages.some(message => String(message.content).includes('助手确认：KOOK 自动抓取验证通过')));
   await handlers.get('turn/end')({ sessionId: 's1' });
   assert.equal(created.length, 1);
   await handlers.get('agent/pre-step')({ agent }, async () => ({ kind: 'enter', messages: [{ role: 'user', content: '用户偏好 TypeScript' }] }));

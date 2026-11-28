@@ -376,6 +376,16 @@ function promptTextOf(messages) {
   return '';
 }
 
+function assistantTextOf(events) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const message = events[i]?.data || events[i];
+    if (message?.role !== 'assistant' || message?.source?.kind === `plugin:${name}`) continue;
+    const content = typeof message.content === 'string' ? message.content : Array.isArray(message.content) ? message.content.map(block => block?.text || '').join('\n') : '';
+    if (content.trim()) return content.trim().slice(-6000);
+  }
+  return '';
+}
+
 function injectionMessage(textValue) {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -476,12 +486,14 @@ export function apply(ctx, config = {}) {
       const sid = input.agent?.session?.header?.id || input.sessionId || input.session?.id || (sessions.size === 1 ? sessions.keys().next().value : '?');
       const session = sessions.get(sid) || { injected: '' };
       sessions.set(sid, session);
-      const snapshotPrompt = promptTextOf(input.agent?.session?.snapshotEvents?.() || input.events || []);
+      const events = input.agent?.session?.snapshotEvents?.() || input.events || [];
+      const snapshotPrompt = promptTextOf(events);
       const prompt = session.lastPrompt || snapshotPrompt;
       if (!prompt || prompt === session.capturedPrompt || /<(?:kook|tg)_memory>/.test(prompt)) return;
       session.capturedPrompt = prompt;
+      const conversationText = [prompt, assistantTextOf(events)].filter(Boolean).join('\n\n');
       const result = await retainDocument(effectiveConfig, dir, {
-        text: prompt, mode: 'concise', bank: effectiveConfig.bank || 'default', factType: effectiveConfig.autoCaptureFactType || 'world',
+        text: conversationText, mode: 'concise', bank: effectiveConfig.bank || 'default', factType: effectiveConfig.autoCaptureFactType || 'world',
         tags: ['#auto-capture'], metadata: { harness: 'dsh' },
       });
       diag(dir, 'auto_capture', { sid, count: result.count, documentId: result.documentId });
