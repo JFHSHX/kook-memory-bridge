@@ -9,6 +9,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kook-auto-capture-'));
 const key = '33'.repeat(32);
 process.env.TEST_KEY = 'test-only';
 const created = [];
+fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ autoCapture: true, autoCaptureFactType: 'experience', channels: { exp: 'exp-channel' }, botToken: 'mock', channelId: 'channel-1', key, llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock', llmApiKeyEnv: 'TEST_KEY' }));
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, options = {}) => {
   const url = new URL(String(input));
@@ -31,7 +32,7 @@ const ctx = {
   logger: { info() {}, warn() {} },
 };
 try {
-  apply(ctx, { dataDir: dir, autoCapture: true, autoCaptureFactType: 'experience', channels: { exp: 'exp-channel' }, botToken: 'mock', channelId: 'channel-1', key, llmBaseURL: 'https://mock.llm/v1', llmModel: 'mock', llmApiKeyEnv: 'TEST_KEY' });
+  apply(ctx, { dataDir: dir });
   const agent = { session: { header: { id: 's1' }, snapshotEvents: () => [] } };
   await handlers.get('agent/session-start')({ agent });
   await handlers.get('agent/pre-step')({ agent }, async () => ({ kind: 'enter', messages: [{ role: 'user', content: '用户喜欢 Vue' }] }));

@@ -4,6 +4,7 @@ import {
   parseMemoryMessage, kook, readMemory, writeMemory, recallMemory,
   locateMemory, defenseApply, diag, rebuildCache, cacheExists,
 } from './core.js';
+import path from 'node:path';
 import { normalizeUnit } from './units.js';
 import { createBankTool } from './bank-tool.js';
 import { searchKookMemory } from './search.js';
@@ -438,6 +439,7 @@ export function apply(ctx, config = {}) {
     try { sctx?.systemPrompt?.section?.({ name: 'kook-memory-bridge:policy', order: 501, text: POLICY }); } catch { /* 静默 */ }
   });
   const dir = resolveDataDir(config);
+  const effectiveConfig = loadConfig(config, dir);
   const sessions = new Map();
   ctx.on('agent/session-start', ({ agent } = {}) => {
     sessions.set(agent?.session?.header?.id || '?', { injected: '' });
@@ -468,8 +470,8 @@ export function apply(ctx, config = {}) {
   }, { prepend: true });
   ctx.on('agent/turn-stopping', async ({ agent } = {}) => {
     try {
-      if (config.autoCapture !== true) return;
-      const client = createLLMClient(loadConfig(config, dir));
+      if (effectiveConfig.autoCapture !== true) return;
+      const client = createLLMClient(effectiveConfig);
       if (!client.enabled) return;
       const sid = agent?.session?.header?.id || '?';
       const session = sessions.get(sid);
@@ -477,7 +479,7 @@ export function apply(ctx, config = {}) {
       if (!prompt || prompt === session.capturedPrompt || /<(?:kook|tg)_memory>/.test(prompt)) return;
       session.capturedPrompt = prompt;
       const result = await retainDocument(loadConfig(config, dir), dir, {
-        text: prompt, mode: 'concise', bank: config.bank || 'default', factType: config.autoCaptureFactType || 'world',
+        text: prompt, mode: 'concise', bank: effectiveConfig.bank || 'default', factType: effectiveConfig.autoCaptureFactType || 'world',
         tags: ['#auto-capture'], metadata: { harness: 'dsh' },
       });
       diag(dir, 'auto_capture', { sid, count: result.count, documentId: result.documentId });
@@ -489,8 +491,8 @@ export function apply(ctx, config = {}) {
     await stopKookRuntime({ stateFile: path.join(dir, 'scheduler-state.json') });
     sessions.delete(agent?.session?.header?.id || '?');
   });
-  if (config.autoStartRuntime === true) {
-    startKookRuntime({ tools: defs, stateFile: path.join(dir, 'scheduler-state.json'), logger: ctx.logger }).catch(error => ctx.logger?.warn?.(`kook-memory-bridge: 自动启动失败：${error?.message || error}`));
+  if (effectiveConfig.autoStartRuntime === true) {
+    startKookRuntime({ tools: Object.fromEntries(buildTools(config).map(def => [def.name, def])), stateFile: path.join(dir, 'scheduler-state.json'), logger: ctx.logger }).catch(error => ctx.logger?.warn?.(`kook-memory-bridge: 自动启动失败：${error?.message || error}`));
   }
 }
 

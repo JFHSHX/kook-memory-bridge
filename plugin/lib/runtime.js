@@ -21,7 +21,7 @@ export async function startKookRuntime({ tools, stateFile, logger = null }) {
   if (runtimes.has(stateFile)) return runtimes.get(stateFile);
   const scheduler = new MentalModelScheduler({ tools: makeTools(tools), stateFile });
   const runtime = {
-    scheduler, timers: new Map(), running: true, stateFile,
+    scheduler, timers: new Map(), running: true, ready: false, stateFile,
     async run(mode) {
       try { return await scheduler.run(mode); } catch (error) { logger?.warn?.(`kook runtime ${mode} failed: ${error.message}`); return { error: error.message }; }
     },
@@ -37,13 +37,14 @@ export async function startKookRuntime({ tools, stateFile, logger = null }) {
     },
     async stop() {
       runtime.running = false;
+      runtime.ready = false;
       for (const timer of runtime.timers.values()) clearTimeout(timer);
       runtime.timers.clear();
       if (tools.kook_pages?.execute) await tools.kook_pages.execute({ action: 'stop' });
       runtimes.delete(stateFile);
       return { ok: true, running: false };
     },
-    status() { return { ok: true, running: runtime.running, stateFile, timers: [...runtime.timers.keys()] }; }
+    status() { return { ok: true, running: runtime.running, ready: runtime.ready, stateFile, timers: [...runtime.timers.keys()] }; }
   };
   runtimes.set(stateFile, runtime);
   try {
@@ -51,6 +52,7 @@ export async function startKookRuntime({ tools, stateFile, logger = null }) {
     await runtime.run('delta');
     await runtime.schedule('delta');
     await runtime.schedule('full');
+    runtime.ready = true;
     return runtime;
   } catch (error) {
     await runtime.stop();
