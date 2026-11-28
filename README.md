@@ -76,6 +76,8 @@ dsh plugin --profile web add ~/.dsh/dsh-go/plugins/kook-memory-bridge
 
 代码变更后在 App「引擎」页重启。`autoCapture` 默认关闭，开启且配置 LLM 后才会在 turn-stopping 自动抽取；`autoCaptureFactType=experience` 时自动写入 `exp` 频道，未设置则写入主频道。
 
+设置 `autoStartRuntime=true` 后，DSH 启动会自动启动完整 KOOK 运行时（Mental Model 调度与 Knowledge Pages），引擎停止时自动清理；无需再手动运行 standalone daemon。
+
 ## v0.4.0 第二阶段能力
 
 - `plugin/lib/reflect-agent.js`：最多 10 轮检索/扩展，decision model 只接受真实检索 id，支持 answer_found/done/next_query 与完整 toolTrace。
