@@ -480,16 +480,18 @@ export function apply(ctx, config = {}) {
   }, { prepend: true });
   const captureConversation = async (input = {}) => {
     try {
-      if (effectiveConfig.autoCapture !== true) return;
+      if (effectiveConfig.autoCapture !== true) { diag(dir, 'auto_capture_skip', { reason: 'disabled' }); return; }
       const client = createLLMClient(effectiveConfig);
-      if (!client.enabled) return;
+      if (!client.enabled) { diag(dir, 'auto_capture_skip', { reason: 'llm-disabled' }); return; }
       const sid = input.agent?.session?.header?.id || input.sessionId || input.session?.id || (sessions.size === 1 ? sessions.keys().next().value : '?');
       const session = sessions.get(sid) || { injected: '' };
       sessions.set(sid, session);
       const events = input.agent?.session?.snapshotEvents?.() || input.events || [];
       const snapshotPrompt = promptTextOf(events);
       const prompt = session.lastPrompt || snapshotPrompt;
-      if (!prompt || prompt === session.capturedPrompt || /<(?:kook|tg)_memory>/.test(prompt)) return;
+      if (!prompt) { diag(dir, 'auto_capture_skip', { sid, reason: 'no-prompt' }); return; }
+      if (prompt === session.capturedPrompt) { diag(dir, 'auto_capture_skip', { sid, reason: 'duplicate' }); return; }
+      if (/<(?:kook|tg)_memory>/.test(prompt)) { diag(dir, 'auto_capture_skip', { sid, reason: 'memory-injection' }); return; }
       session.capturedPrompt = prompt;
       const conversationText = [prompt, assistantTextOf(events)].filter(Boolean).join('\n\n');
       const result = await retainDocument(effectiveConfig, dir, {
@@ -498,9 +500,11 @@ export function apply(ctx, config = {}) {
       });
       diag(dir, 'auto_capture', { sid, count: result.count, documentId: result.documentId });
     } catch (error) {
+      diag(dir, 'auto_capture_error', { message: String(error?.message || error) });
       try { ctx.logger?.warn?.(`kook-memory-bridge: 自动沉淀失败：${error?.message || error}`); } catch { /* 静默 */ }
     }
   };
+  diag(dir, 'auto_capture_registered', { turnEnd: true, turnStopping: true });
   ctx.on('agent/turn-stopping', captureConversation);
   ctx.on('turn/end', captureConversation);
   ctx.on('agent/disposed', ({ agent } = {}) => {

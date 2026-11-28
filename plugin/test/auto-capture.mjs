@@ -45,11 +45,15 @@ try {
   assert.equal(created.length, 1);
   assert.equal(created[0].target_id, 'exp-channel');
   assert.ok(llmBodies[0].messages.some(message => String(message.content).includes('助手确认：KOOK 自动抓取验证通过')));
-  await handlers.get('turn/end')({ sessionId: 's1' });
+  await handlers.get('turn/end')({ sessionId: 's1', events: [{ role: 'user', content: '用户喜欢 Vue' }] });
   assert.equal(created.length, 1);
   await handlers.get('agent/pre-step')({ agent }, async () => ({ kind: 'enter', messages: [{ role: 'user', content: '用户偏好 TypeScript' }] }));
   await handlers.get('turn/end')({ sessionId: 's1' });
   assert.equal(created.length, 2);
+  const events = fs.readFileSync(path.join(dir, 'diag.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+  assert.ok(events.some(event => event.event === 'auto_capture_registered'));
+  assert.equal(events.filter(event => event.event === 'auto_capture').length, 2);
+  assert.ok(events.some(event => event.event === 'auto_capture_skip' && event.reason === 'duplicate'));
   console.log('✓ autoCapture 在 turn-stopping 自动抽取并写入记忆');
 } finally {
   globalThis.fetch = realFetch;
