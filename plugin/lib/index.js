@@ -11,6 +11,7 @@ import { retainDocument } from './retain.js';
 import { createAdvancedTools } from './advanced-tools.js';
 import { createPageTools } from './pages.js';
 import { createHttpTools } from './http-server.js';
+import { startKookRuntime, stopKookRuntime } from './runtime.js';
 import { searchMemories } from './retrieval.js';
 import { createLLMClient } from './llm.js';
 
@@ -484,9 +485,13 @@ export function apply(ctx, config = {}) {
       try { ctx.logger?.warn?.(`kook-memory-bridge: 自动沉淀失败：${error?.message || error}`); } catch { /* 静默 */ }
     }
   });
-  ctx.on('agent/disposed', ({ agent } = {}) => {
+  ctx.on('agent/disposed', async ({ agent } = {}) => {
+    await stopKookRuntime({ stateFile: path.join(dir, 'scheduler-state.json') });
     sessions.delete(agent?.session?.header?.id || '?');
   });
+  if (config.autoStartRuntime === true) {
+    startKookRuntime({ tools: defs, stateFile: path.join(dir, 'scheduler-state.json'), logger: ctx.logger }).catch(error => ctx.logger?.warn?.(`kook-memory-bridge: 自动启动失败：${error?.message || error}`));
+  }
 }
 
 export const __internals = { buildTools, buildInjection, promptTextOf, relevantHits, parseMemoryMessage };

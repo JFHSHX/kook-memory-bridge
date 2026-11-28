@@ -38,6 +38,8 @@ node standalone/index.mjs --once dry-run
 # 常驻运行：启动时先检查 delta，再按 UTC 计划调度
 node standalone/index.mjs --daemon
 
+# DSH 插件方式：配置 autoStartRuntime=true 后，DSH 启动自动启动完整运行时，停止时自动清理
+
 # 独立 HTTP API（与 kook_http 共用注册表）
 node standalone/http.mjs
 # 可配 KOOK_HTTP_TOKEN、KOOK_HTTP_HOST、KOOK_HTTP_PORT
