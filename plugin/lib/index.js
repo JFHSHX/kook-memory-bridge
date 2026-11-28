@@ -351,7 +351,7 @@ function buildTools(config = {}) {
   };
 
   const advancedTools = createAdvancedTools(cfg, dir);
-  const refreshModel = async args => advancedTools.find(def => def.name === 'kook_mental_model').execute(args);
+  const refreshModel = async args => advancedTools.find(def => def.name === 'kook_mental_model').execute({ action: 'refresh', ...args });
   const tools = [
     status, retain, recall, rebuild, createBankTool(cfg, dir), forget, edit, pin,
     ...advancedTools,
