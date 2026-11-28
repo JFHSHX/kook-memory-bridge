@@ -1,5 +1,6 @@
 import { normalizeUnit } from './units.js';
 import { validateObservationDecision } from './consolidation.js';
+import { resolveProviderKey } from './provider-credentials.js';
 
 export function extractJson(input) {
   const source = String(input || '').replace(/```(?:json)?/gi, '').trim();
@@ -57,7 +58,7 @@ export function createLLMClient(config = {}, { fetch: fetchImpl = globalThis.fet
   const baseURL = String(config.llmBaseURL || '').replace(/\/$/, '');
   const model = config.llmModel || '';
   const apiKeyEnv = config.llmApiKeyEnv || 'NS_API_KEY';
-  const apiKey = config.llmApiKey || env[apiKeyEnv] || '';
+  const apiKey = resolveProviderKey({ env, name: apiKeyEnv, explicit: config.llmApiKey, allowCredentials: env === process.env });
   const client = {
     enabled: Boolean(baseURL && model && apiKey),
     model,

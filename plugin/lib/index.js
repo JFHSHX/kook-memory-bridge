@@ -487,9 +487,11 @@ export function apply(ctx, config = {}) {
       try { ctx.logger?.warn?.(`kook-memory-bridge: 自动沉淀失败：${error?.message || error}`); } catch { /* 静默 */ }
     }
   });
-  ctx.on('agent/disposed', async ({ agent } = {}) => {
-    await stopKookRuntime({ stateFile: path.join(dir, 'scheduler-state.json') });
+  ctx.on('agent/disposed', ({ agent } = {}) => {
     sessions.delete(agent?.session?.header?.id || '?');
+  });
+  ctx.on('dispose', async () => {
+    await stopKookRuntime({ stateFile: path.join(dir, 'scheduler-state.json') });
   });
   if (effectiveConfig.autoStartRuntime === true) {
     startKookRuntime({ tools: Object.fromEntries(buildTools(config).map(def => [def.name, def])), stateFile: path.join(dir, 'scheduler-state.json'), logger: ctx.logger }).catch(error => ctx.logger?.warn?.(`kook-memory-bridge: 自动启动失败：${error?.message || error}`));

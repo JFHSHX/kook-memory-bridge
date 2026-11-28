@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { tokenize, cosineSimilarity as cosine } from './retrieval.js';
+import { resolveProviderKey } from './provider-credentials.js';
 
 export { cosine as cosineSimilarity };
 const hash = value => createHash('sha256').update(String(value), 'utf8').digest();
@@ -85,7 +86,7 @@ export function createEmbeddingProvider(config = {}, { fetch: fetchImpl = global
   const model = config.embeddingModel || 'text-embedding-3-small';
   const apiKeyEnv = config.embeddingApiKeyEnv || 'OPENAI_API_KEY';
   if (!baseURL) throw new Error('远程 embedding 需要 embeddingBaseURL（OpenAI 兼容 /v1 地址）');
-  const apiKey = config.embeddingApiKey || env[apiKeyEnv] || '';
+  const apiKey = resolveProviderKey({ env, name: apiKeyEnv, explicit: config.embeddingApiKey, allowCredentials: env === process.env });
   if (!apiKey) throw new Error(`远程 embedding 缺少 API key：设置 ${apiKeyEnv} 或改 embeddingProvider=local`);
   async function embed(entries, inputType) {
     const inputs = entries.map(embeddingInput);

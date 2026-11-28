@@ -94,8 +94,14 @@ export class KnowledgePages {
   status() { return { ok: true, running: Boolean(this.timer), intervalMs: this.intervalMs, autoRefresh: this.autoRefresh, root: this.root }; }
 }
 
+const services = new Map();
+
 export function createPageTools({ dir, refreshModel, intervalMs = 60000, autoRefresh = true }) {
-  const service = new KnowledgePages({ dir, refreshModel, intervalMs, autoRefresh });
+  let service = services.get(dir);
+  if (!service) {
+    service = new KnowledgePages({ dir, refreshModel, intervalMs, autoRefresh });
+    services.set(dir, service);
+  }
   const output = render => ({ schema: { type: 'object' }, render });
   const text = value => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }];
   return [{
