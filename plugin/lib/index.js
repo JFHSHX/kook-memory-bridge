@@ -468,17 +468,17 @@ export function apply(ctx, config = {}) {
     }
     return decision;
   }, { prepend: true });
-  ctx.on('agent/turn-stopping', async ({ agent } = {}) => {
+  const captureConversation = async (input = {}) => {
     try {
       if (effectiveConfig.autoCapture !== true) return;
       const client = createLLMClient(effectiveConfig);
       if (!client.enabled) return;
-      const sid = agent?.session?.header?.id || '?';
+      const sid = input.agent?.session?.header?.id || input.sessionId || input.session?.id || (sessions.size === 1 ? sessions.keys().next().value : '?');
       const session = sessions.get(sid);
       const prompt = session?.lastPrompt;
       if (!prompt || prompt === session.capturedPrompt || /<(?:kook|tg)_memory>/.test(prompt)) return;
       session.capturedPrompt = prompt;
-      const result = await retainDocument(loadConfig(config, dir), dir, {
+      const result = await retainDocument(effectiveConfig, dir, {
         text: prompt, mode: 'concise', bank: effectiveConfig.bank || 'default', factType: effectiveConfig.autoCaptureFactType || 'world',
         tags: ['#auto-capture'], metadata: { harness: 'dsh' },
       });
@@ -486,7 +486,9 @@ export function apply(ctx, config = {}) {
     } catch (error) {
       try { ctx.logger?.warn?.(`kook-memory-bridge: 自动沉淀失败：${error?.message || error}`); } catch { /* 静默 */ }
     }
-  });
+  };
+  ctx.on('agent/turn-stopping', captureConversation);
+  ctx.on('turn/end', captureConversation);
   ctx.on('agent/disposed', ({ agent } = {}) => {
     sessions.delete(agent?.session?.header?.id || '?');
   });

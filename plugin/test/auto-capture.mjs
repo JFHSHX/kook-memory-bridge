@@ -41,6 +41,11 @@ try {
   assert.ok(rows.some(row => row.tags.includes('#auto-capture') && row.text.includes('用户喜欢 Vue')));
   assert.equal(created.length, 1);
   assert.equal(created[0].target_id, 'exp-channel');
+  await handlers.get('turn/end')({ sessionId: 's1' });
+  assert.equal(created.length, 1);
+  await handlers.get('agent/pre-step')({ agent }, async () => ({ kind: 'enter', messages: [{ role: 'user', content: '用户偏好 TypeScript' }] }));
+  await handlers.get('turn/end')({ sessionId: 's1' });
+  assert.equal(created.length, 2);
   console.log('✓ autoCapture 在 turn-stopping 自动抽取并写入记忆');
 } finally {
   globalThis.fetch = realFetch;
